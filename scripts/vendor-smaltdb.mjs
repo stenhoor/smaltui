@@ -1,4 +1,5 @@
-// Puts a smaltdb build in vendor/smaltdb/ (smaltdb.js + smaltdb-worker.js), the engine the page loads by default.
+// Puts a smaltdb build in vendor/smaltdb/ (smaltdb.js, smaltdb-worker.js and its lazily loaded chunks/),
+// the engine the page loads by default.
 //
 // smaltdb is not on npm yet, so by default this bundles it from source:
 //   node scripts/vendor-smaltdb.mjs                      # clone github.com/stenhoor/smaltdb (main) into .cache/ and bundle
@@ -29,6 +30,7 @@ if (args.includes('--npm')) {
   if (!existsSync(pkgDir)) throw new Error('smaltdb is not installed: npm install smaltdb');
   const pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
   for (const f of ['smaltdb.js', 'smaltdb-worker.js']) cpSync(join(pkgDir, 'dist', f), join(out, f));
+  if (existsSync(join(pkgDir, 'dist', 'chunks'))) cpSync(join(pkgDir, 'dist', 'chunks'), join(out, 'chunks'), { recursive: true });
   writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'npm', version: pkg.version }, null, 2) + '\n');
   console.log(`vendored smaltdb@${pkg.version} from npm`);
   process.exit(0);
@@ -48,10 +50,13 @@ try {
   commit = git(src, 'rev-parse', 'HEAD');
 } catch {}
 
-const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning' };
+// smaltdb's optional peer dependencies (the Parquet reader) resolve from smaltui's node_modules,
+// so a checkout outside this folder works too.
+const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning', nodePaths: [join(root, 'node_modules')] };
 await Promise.all([
   build({ ...common, entryPoints: [join(src, 'src/client/index.ts')], outfile: join(out, 'smaltdb.js') }),
-  build({ ...common, entryPoints: [join(src, 'src/engine/worker.ts')], outfile: join(out, 'smaltdb-worker.js') }),
+  // As in smaltdb's own build: code splitting, so the Parquet reader is a chunk the worker loads on first use.
+  build({ ...common, entryPoints: { 'smaltdb-worker': join(src, 'src/engine/worker.ts') }, outdir: out, splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
 ]);
 const pkg = JSON.parse(readFileSync(join(src, 'package.json'), 'utf8'));
 writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'git', repo, commit, version: pkg.version, builtAt: new Date().toISOString() }, null, 2) + '\n');

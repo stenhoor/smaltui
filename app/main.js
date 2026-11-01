@@ -4,7 +4,7 @@ import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, qu
 import { Editor } from './editor.js';
 import { Grid, formatValue, plainValue, exportRows } from './grid.js';
 import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
-import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName } from './env.js';
+import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet } from './env.js';
 
 // ================================================================ helpers
 
@@ -333,10 +333,10 @@ async function regrantFile(name) {
 }
 
 /** Let the user choose a file: the File System Access picker (keeps a handle) or a plain input. */
-async function pickLocalFile(accept = '.csv,.tsv,.txt,.json,.ndjson,.jsonl') {
+async function pickLocalFile(accept = '.csv,.tsv,.txt,.json,.ndjson,.jsonl,.parquet') {
   if (window.showOpenFilePicker) {
     try {
-      const [handle] = await window.showOpenFilePicker({ types: [{ description: 'Data files', accept: { 'text/plain': accept.split(',') } }], excludeAcceptAllOption: false });
+      const [handle] = await window.showOpenFilePicker({ types: [{ description: 'Data files', accept: { 'application/octet-stream': accept.split(',') } }], excludeAcceptAllOption: false });
       return { handle, file: await handle.getFile() };
     } catch (e) {
       if (e.name === 'AbortError') return null;
@@ -1517,19 +1517,19 @@ function importTab() {
         <div class="cards">
           <section class="card" data-card="import">
             <h3>Import into a table</h3>
-            <p class="sub">CSV, TSV, JSON (array of objects) or NDJSON. Column types are inferred for new tables.</p>
+            <p class="sub">CSV, TSV, JSON (array of objects), NDJSON or Parquet. Column types are inferred for new tables.</p>
             <div class="seg" data-src-seg><button class="on" data-src="file">File</button><button data-src="url">URL</button><button data-src="paste">Paste</button></div>
             <div data-src-file><div class="drop" data-drop tabindex="0"><b>Drop a file here</b> or click to choose</div></div>
             <div data-src-url hidden><label class="field"><span>URL (must allow CORS)</span><input type="url" data-url placeholder="https://example.com/data.csv"></label><button data-fetch>Fetch</button></div>
             <div data-src-paste hidden><label class="field"><span>Data</span><textarea class="plain sqlbox" data-paste placeholder="id,name&#10;1,Ada&#10;2,Grace"></textarea></label><button data-use-paste>Use pasted data</button></div>
             <div data-imp-detail hidden>
               <div class="row">
-                <label class="field"><span>Format</span><select data-fmt><option value="csv">CSV</option><option value="tsv">TSV</option><option value="json">JSON</option><option value="ndjson">NDJSON</option></select></label>
-                <label class="field"><span>Delimiter</span><input type="text" data-delim value="," maxlength="2" style="width:60px"></label>
+                <label class="field"><span>Format</span><select data-fmt><option value="csv">CSV</option><option value="tsv">TSV</option><option value="json">JSON</option><option value="ndjson">NDJSON</option><option value="parquet">Parquet</option></select></label>
+                <label class="field" data-delim-field><span>Delimiter</span><input type="text" data-delim value="," maxlength="2" style="width:60px"></label>
                 <label class="field"><span>Target</span><select data-mode><option value="new">New table</option><option value="existing">Existing table</option></select></label>
                 <label class="field"><span>Table</span><input type="text" data-table list="smaltui-tables"></label>
               </div>
-              <div class="checks"><label><input type="checkbox" data-header checked> First row is a header</label><label><input type="checkbox" data-emptynull checked> Empty fields are NULL</label></div>
+              <div class="checks" data-csv-only><label><input type="checkbox" data-header checked> First row is a header</label><label><input type="checkbox" data-emptynull checked> Empty fields are NULL</label></div>
               <div class="preview" data-preview></div>
               <div class="actions"><button class="primary" data-do-import>Import</button><span class="note" data-imp-note></span></div>
               <div data-imp-result></div>
@@ -1538,7 +1538,7 @@ function importTab() {
 
           <section class="card" data-card="link">
             <h3>Link an external table</h3>
-            <p class="sub">Query a file or URL in place with <code>CREATE EXTERNAL TABLE</code>. Read-only; re-read on every query.</p>
+            <p class="sub">Query a file or URL in place with <code>CREATE EXTERNAL TABLE</code>. Read-only; re-read on every query (Parquet reads only the columns and row groups a query needs).</p>
             <div class="seg" data-lsrc-seg><button class="on" data-lsrc="url">URL</button><button data-lsrc="file">Local file</button></div>
             <div data-lsrc-url><label class="field"><span>Location (absolute URL, or a path relative to the connection)</span><input type="text" data-lurl placeholder="https://example.com/prices.csv"></label></div>
             <div data-lsrc-file hidden>
@@ -1546,7 +1546,7 @@ function importTab() {
             </div>
             <div class="row">
               <label class="field"><span>Table name</span><input type="text" data-lname></label>
-              <label class="field"><span>Format</span><select data-lfmt><option value="">auto</option><option>csv</option><option>tsv</option><option>json</option><option>ndjson</option></select></label>
+              <label class="field"><span>Format</span><select data-lfmt><option value="">auto</option><option>csv</option><option>tsv</option><option>json</option><option>ndjson</option><option>parquet</option></select></label>
               <label class="field"><span>Connection</span><select data-lconn></select></label>
             </div>
             <div data-newconn hidden class="card" style="margin-bottom:10px;padding:10px">
@@ -1680,17 +1680,21 @@ function importTab() {
         const d = $('[data-delim]', el).value.replace('\\t', '\t');
         if (d && d !== (fmt === 'tsv' ? '\t' : ',')) args.push(`delimiter => ${quoteLiteral(d)}`);
         args.push(`header => ${$('[data-header]', el).checked}`);
-      } else args.push(`format => ${quoteLiteral(fmt)}`);
+      } else if (fmt !== 'parquet') args.push(`format => ${quoteLiteral(fmt)}`);
       return { fmt, args };
     },
     async previewImport() {
       if (!this.source || !app.db) return;
       const { fmt, args } = this.readerArgs();
-      const fn = fmt === 'json' || fmt === 'ndjson' ? 'read_json' : 'read_csv';
+      const fn = fmt === 'parquet' ? 'read_parquet' : fmt === 'json' || fmt === 'ndjson' ? 'read_json' : 'read_csv';
+      const csv = fmt === 'csv' || fmt === 'tsv';
+      $('[data-delim-field]', this.el).hidden = !csv;
+      $('[data-csv-only]', this.el).hidden = !csv;
       try {
-        // Small files are previewed whole; big ones from their first 256 KB (enough for 100 rows).
+        // Small text files are previewed whole; big ones from their first 256 KB (enough for 100 rows).
+        // Parquet is read whole: its footer is at the end and the engine reads only what it needs.
         let blob = this.source.blob;
-        if (blob.size > 262144 && fmt !== 'json') {
+        if (blob.size > 262144 && csv) {
           const text = await blob.slice(0, 262144).text();
           blob = new Blob([text.slice(0, text.lastIndexOf('\n') + 1)]);
         }
@@ -1728,7 +1732,8 @@ function importTab() {
       btn.disabled = true;
       try {
         let r;
-        if (fmt === 'json' || fmt === 'ndjson') r = await write((db) => db.importJSON(table, this.source.blob, { create: mode === 'new' }));
+        if (fmt === 'parquet') r = await write((db) => importParquet(db, table, this.source.blob));
+        else if (fmt === 'json' || fmt === 'ndjson') r = await write((db) => db.importJSON(table, this.source.blob, { create: mode === 'new' }));
         else {
           const delimiter = $('[data-delim]', el).value.replace('\\t', '\t') || (fmt === 'tsv' ? '\t' : ',');
           r = await write((db) => db.importCSV(table, this.source.blob, { create: mode === 'new', header: $('[data-header]', el).checked, delimiter, emptyAsNull: $('[data-emptynull]', el).checked }));
@@ -1811,7 +1816,7 @@ function importTab() {
       if (val('[data-ldelim]')) options.delimiter = val('[data-ldelim]').replace('\\t', '\t');
       if (val('[data-lnull]')) options.null = val('[data-lnull]');
       if (val('[data-lskip]')) options.skip = Number(val('[data-lskip]'));
-      const format = val('[data-lfmt]') || (/\.(csv|tsv|json|ndjson|jsonl)(\?|#|$)/i.test(location) ? undefined : 'csv');
+      const format = val('[data-lfmt]') || (/\.(csv|tsv|json|ndjson|jsonl|parquet)(\?|#|$)/i.test(location) ? undefined : 'csv');
       let sql = connSql + externalTableSql({ table, location, format, options, connection: connection || undefined }) + ';';
       if ($('[data-lcache]', el).checked) {
         const every = Number(val('[data-levery]'));
@@ -1852,7 +1857,7 @@ function importTab() {
           loc = new URL(loc, base).href;
         }
         const fmt = spec.format ?? formatFromName(loc);
-        const fn = fmt === 'json' || fmt === 'ndjson' ? 'read_json' : 'read_csv';
+        const fn = fmt === 'parquet' ? 'read_parquet' : fmt === 'json' || fmt === 'ndjson' ? 'read_json' : 'read_csv';
         const args = Object.entries({ ...spec.options, ...(fn === 'read_json' ? { format: fmt } : fmt === 'tsv' && !spec.options.delimiter ? { delimiter: '\t' } : {}) }).map(([k, v]) => `${k} => ${typeof v === 'string' ? quoteLiteral(v) : v}`);
         const r = await app.db.query(`SELECT * FROM ${fn}(${quoteLiteral(loc)}${args.length ? ', ' + args.join(', ') : ''}) LIMIT 100`, [], { rowMode: 'array' });
         g.setData(r.columns, r);

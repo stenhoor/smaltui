@@ -142,6 +142,43 @@ try {
     await page.locator('#tree [data-obj="exchange_rates"]').waitFor({ timeout: 3000 });
   });
 
+  await step('Parquet: link by URL (range reads), read_parquet, import into a table', async () => {
+    await activePane().locator('[data-lurl]').fill(base + 'test/fixtures/sales-zstd.parquet');
+    await activePane().locator('[data-lname]').fill('sales_pq');
+    await activePane().locator('[data-ltest]').click();
+    await page.waitForFunction(() => document.querySelectorAll('.pane.active [data-lpreview] tbody tr[data-row]').length > 0, null, { timeout: 10000 });
+    await activePane().locator('[data-lcreate]').click();
+    await activePane().locator('[data-lresult] .inline-ok').waitFor({ timeout: 10000 });
+    const r = await page.evaluate(async (url) => {
+      const db = window.smaltui.db;
+      const ext = (await db.query('SELECT count(*) AS n FROM sales_pq'))[0].n;
+      const adhoc = (await db.query(`SELECT count(*) AS n FROM read_parquet('${url}')`))[0].n;
+      const { importParquet } = await import('/app/env.js');
+      const blob = await (await fetch(url)).blob();
+      const imp = await importParquet(db, 'sales_local', blob);
+      const local = (await db.query('SELECT count(*) AS n FROM sales_local'))[0].n;
+      const kind = (await db.query("SELECT table_type FROM information_schema.tables WHERE table_name = 'sales_local'"))[0].table_type;
+      return { ext, adhoc, imp: imp.rows, local, kind };
+    }, base + 'test/fixtures/sales-zstd.parquet');
+    if (!(r.ext > 0 && r.ext === r.adhoc && r.imp === r.ext && r.local === r.ext && r.kind === 'BASE TABLE')) throw new Error(JSON.stringify(r));
+  });
+
+  await step('Parquet: drop a file on the import card', async () => {
+    await activePane().locator('[data-src="file"]').click();
+    await page.evaluate(async (url) => {
+      const blob = await (await fetch(url)).blob();
+      const dt = new DataTransfer();
+      dt.items.add(new File([blob], 'dropped_sales.parquet'));
+      document.querySelector('.pane.active [data-drop]').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }, base + 'test/fixtures/sales-zstd.parquet');
+    await page.waitForFunction(() => document.querySelectorAll('.pane.active [data-preview] tbody tr[data-row]').length > 0, null, { timeout: 8000 });
+    if ((await activePane().locator('[data-fmt]').inputValue()) !== 'parquet') throw new Error('format not detected');
+    await activePane().locator('[data-do-import]').click();
+    await activePane().locator('[data-imp-result] .inline-ok').waitFor({ timeout: 8000 });
+    await page.locator('#tree [data-obj="dropped_sales"]').waitFor({ timeout: 3000 });
+  });
+  await shot('06-parquet-import');
+
   await step('demo environment loads', async () => {
     await page.goto(base + '?env=envs/demo/env.json');
     await page.waitForFunction(() => window.smaltui?.db && window.smaltui.schema.tables.has('monthly_revenue'), null, { timeout: 20000 });

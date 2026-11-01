@@ -12,6 +12,8 @@
     "test": "node test/e2e.mjs"
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "hyparquet": "^1.32.0",
+    "hyparquet-compressors": "^1.1.2"
   }
 }
