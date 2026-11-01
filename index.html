@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>smaltui</title>
+  <meta name="description" content="A query workbench for smaltdb, the in-browser SQL database. Runs entirely in your browser.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b5fd9'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h9' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="app/styles.css">
+  <script>
+    // Apply the saved theme before first paint.
+    try { const t = JSON.parse(localStorage.getItem('smaltui.theme')); if (t) document.documentElement.dataset.theme = t; } catch {}
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand" title="smaltui — a query workbench for smaltdb">
+        <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M9 11h14M9 16h14M9 21h9" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>
+        <span>smalt<b>ui</b></span>
+      </div>
+      <button class="db-picker" id="dbPicker" title="Switch database (Ctrl+Shift+O)">
+        <span class="db-dot" id="dbDot"></span>
+        <span id="dbName">no database</span>
+        <span class="db-storage" id="dbStorage"></span>
+        <span class="caret">▾</span>
+      </button>
+      <div class="topbar-actions">
+        <button class="ghost" id="btnNewQuery" title="New query tab (Ctrl+Shift+N)">＋<span class="label"> Query</span></button>
+        <button class="ghost" id="btnImport" title="Import or link data">⇣<span class="label"> Import</span></button>
+        <button class="ghost" id="btnHistory" title="Query history">⟲<span class="label"> History</span></button>
+        <div class="menu-wrap">
+          <button class="ghost" id="btnMore" aria-haspopup="true" title="More">⋯</button>
+          <div class="menu" id="moreMenu" hidden>
+            <button data-act="export-env">Export database as environment (.json)</button>
+            <button data-act="export-sql">Export database as SQL dump</button>
+            <button data-act="load-env">Load environment…</button>
+            <hr>
+            <button data-act="engine">Engine source…</button>
+            <button data-act="theme">Toggle light / dark</button>
+            <button data-act="shortcuts">Keyboard shortcuts</button>
+            <button data-act="about">About smaltui</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar" id="sidebar">
+        <div class="side-head">
+          <span>Objects</span>
+          <button class="icon" id="btnRefreshTree" title="Refresh">↻</button>
+        </div>
+        <input class="side-filter" id="treeFilter" type="search" placeholder="Filter objects…" aria-label="Filter objects">
+        <div class="tree" id="tree" role="tree"></div>
+        <div class="side-foot" id="linkedFiles"></div>
+      </aside>
+      <div class="splitter" id="sideSplitter" title="Drag to resize"></div>
+      <main class="main">
+        <nav class="tabs" id="tabs" role="tablist"></nav>
+        <div class="panes" id="panes"></div>
+      </main>
+    </div>
+
+    <footer class="statusbar">
+      <span id="stEngine">engine: loading…</span>
+      <span id="stMode"></span>
+      <span class="grow" id="stMsg"></span>
+      <span id="stTiming"></span>
+    </footer>
+  </div>
+
+  <dialog id="modal"><form method="dialog" class="modal-inner" id="modalInner"></form></dialog>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="ctx-menu" id="ctxMenu" hidden></div>
+
+  <noscript>smaltui needs JavaScript (it runs the smaltdb engine in your browser).</noscript>
+  <script type="module" src="app/main.js"></script>
+</body>
+</html>
