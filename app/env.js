@@ -11,6 +11,7 @@
 //     { "sqlFile": "schema.sql" },
 //     { "import": "data/cities.csv", "table": "cities", "format": "csv", "options": { "header": true } },
 //     { "table": "notes", "data": [ { "id": 1, "body": "…" } ] },
+//     { "import": "data/sales.parquet", "table": "sales" },
 //     { "link": "data/rates.csv", "table": "rates", "format": "csv", "options": { "header": true } },
 //     { "connection": "api", "url": "https://example.com/v1/" }
 //   ],
@@ -65,7 +66,9 @@ export async function applyManifest(db, m, log) {
       const format = step.format ?? formatFromName(url);
       const opts = { create: true, ...(step.options ?? {}) };
       const res =
-        format === 'json' || format === 'ndjson'
+        format === 'parquet'
+          ? await importParquet(db, step.table, blob)
+          : format === 'json' || format === 'ndjson'
           ? await db.importJSON(step.table, blob, opts)
           : await db.importCSV(step.table, blob, format === 'tsv' ? { delimiter: '\t', ...opts } : opts);
       log('ok', `${label}: imported ${res.rows} rows into ${step.table}`);
@@ -89,10 +92,34 @@ async function fetchText(url) {
 }
 
 export function formatFromName(name) {
-  const m = /\.(csv|tsv|json|ndjson|jsonl|txt)(\?|#|$)/i.exec(name);
+  const m = /\.(csv|tsv|json|ndjson|jsonl|txt|parquet)(\?|#|$)/i.exec(name);
   if (!m) return 'csv';
   const ext = m[1].toLowerCase();
   return ext === 'jsonl' ? 'ndjson' : ext === 'txt' ? 'csv' : ext;
+}
+
+/**
+ * Copy a Parquet file into a table. smaltdb imports CSV/JSON directly; Parquet goes through a
+ * temporary external table (columns come from the file's footer) and INSERT … SELECT.
+ * A missing table is created with the file's column types. Returns { rows }.
+ */
+export async function importParquet(db, table, blob) {
+  const tmp = `__import_${Date.now().toString(36)}`;
+  await db.registerFile(tmp, blob);
+  try {
+    await db.exec(`CREATE EXTERNAL TABLE ${quoteIdent(tmp)} WITH (location = ${quoteLiteral('file:' + tmp)}, format = 'parquet')`);
+    try {
+      const cols = await db.query('SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position', [tmp], { rowMode: 'object' });
+      await db.exec(`CREATE TABLE IF NOT EXISTS ${quoteIdent(table)} (${cols.map((c) => `${quoteIdent(c.column_name)} ${c.data_type || 'ANY'}`).join(', ')})`);
+      const names = cols.map((c) => quoteIdent(c.column_name)).join(', ');
+      const r = await db.exec(`INSERT INTO ${quoteIdent(table)} (${names}) SELECT ${names} FROM ${quoteIdent(tmp)}`);
+      return { rows: r.changes };
+    } finally {
+      await db.exec(`DROP EXTERNAL TABLE IF EXISTS ${quoteIdent(tmp)}`);
+    }
+  } finally {
+    await db.registerFile(tmp, null).catch(() => {});
+  }
 }
 
 /** CREATE EXTERNAL TABLE text. options: header, delimiter, quote, null, skip, encoding. */

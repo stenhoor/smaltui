@@ -26,9 +26,11 @@ database (schema, data, linked sources, saved queries) when it opens.
   controls. In tables with a primary key you can edit a cell (double-click or `Enter`; `Ctrl+Delete` sets NULL),
   insert rows and delete rows.
 - **Import tab:**
-  - *Import into a table:* load a file (drop or choose), a URL, or pasted CSV / TSV / JSON / NDJSON. The preview shows
-    the inferred column types. You can create a new table or append to an existing one.
-  - *Link an external table:* `CREATE EXTERNAL TABLE` over a URL or a local file, with optional connections, auth
+  - *Import into a table:* load a file (drop or choose), a URL, or pasted CSV / TSV / JSON / NDJSON, or a Parquet
+    file. The preview shows the inferred column types. You can create a new table or append to an existing one.
+    (Parquet is copied through a temporary external table and `INSERT … SELECT`.)
+  - *Link an external table:* `CREATE EXTERNAL TABLE` over a URL or a local file (CSV, TSV, JSON, NDJSON or
+    Parquet; Parquet over HTTP is read with Range requests, only the columns and row groups a query needs), with optional connections, auth
     headers (kept in memory only) and a local materialized-view cache. The SQL is shown and can be edited before it
     runs. On Chromium, local files stay linked across reloads (File System Access handles in IndexedDB). Elsewhere,
     the sidebar asks you to attach them again.
@@ -47,13 +49,16 @@ npm install
 npm run serve        # http://localhost:8080
 ```
 
-`scripts/serve.mjs` sends COOP/COEP headers, so the page is cross-origin isolated. smaltdb then uses parallel
+`scripts/serve.mjs` sends COOP/COEP headers, so the page is cross-origin isolated. It also answers Range and HEAD
+requests, which smaltdb uses for Parquet and for freshness checks. smaltdb then uses parallel
 reader workers and can interrupt running statements. OPFS needs a secure context; `localhost` counts.
 
 ## The smaltdb engine
 
-smaltdb is not on npm yet, so smaltui ships a **vendored build** in `vendor/smaltdb/` (`smaltdb.js`, the client, and
-`smaltdb-worker.js`, the engine). `vendor/smaltdb/VERSION.json` records the commit. To update it:
+smaltdb is not on npm yet, so smaltui ships a **vendored build** in `vendor/smaltdb/`: `smaltdb.js` (the client),
+`smaltdb-worker.js` (the engine) and `chunks/` (the Parquet reader, [hyparquet](https://github.com/hyparam/hyparquet),
+which the worker loads on first use). `vendor/smaltdb/VERSION.json` records the commit. smaltdb's optional peer
+dependencies (`hyparquet`, `hyparquet-compressors`) are devDependencies here so they get bundled. To update it:
 
 ```bash
 npm run vendor                         # bundle github.com/stenhoor/smaltdb@main from source
@@ -108,6 +113,7 @@ https://your.host/smaltui/?env=envs/demo/env.json
     { "sql": "CREATE INDEX …;" },
     { "import": "data/products.csv", "table": "products" },
     { "import": "data/customers.json", "table": "customers" },
+    { "import": "data/sales.parquet", "table": "sales" },
     { "table": "notes", "data": [{ "id": 1, "body": "inline rows" }] },
     { "connection": "api", "url": "https://data.example.com/v1/" },
     { "link": "data/exchange_rates.csv", "table": "exchange_rates", "format": "csv", "options": { "header": true } }
