@@ -1,0 +1,17 @@
+{
+  "name": "smaltui",
+  "version": "0.1.0",
+  "description": "A static, in-browser query workbench for smaltdb databases",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "vendor": "node scripts/vendor-smaltdb.mjs",
+    "build": "node scripts/build.mjs",
+    "serve": "node scripts/serve.mjs",
+    "test": "node test/e2e.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

@@ -1,0 +1,18 @@
+id,name,category,price
+1,Sencha,Tea,8.50
+2,Earl Grey,Tea,6.00
+3,Oolong,Tea,11.00
+4,Rooibos,Tea,5.50
+5,Matcha,Tea,19.00
+6,Espresso beans,Coffee,14.00
+7,Cold brew pack,Coffee,9.50
+8,Decaf blend,Coffee,12.00
+9,Single origin,Coffee,17.50
+10,Kettle,Gear,39.00
+11,Grinder,Gear,59.00
+12,Teapot,Gear,28.00
+13,Pour-over set,Gear,34.00
+14,Mug,Gear,9.00
+15,Shortbread,Snacks,4.50
+16,Almond biscotti,Snacks,5.00
+17,Dark chocolate,Snacks,3.50

@@ -1,0 +1,2258 @@
+// smaltui — a query workbench for smaltdb that runs entirely in the browser.
+import { loadEngine, engineSpec, setEngineSpec, opfsAvailable, listOpfsDatabases, deleteOpfsDatabase } from './engine.js';
+import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, quoteLiteral, tableNameFrom, formatSql, leadingKeyword } from './sql.js';
+import { Editor } from './editor.js';
+import { Grid, formatValue, plainValue, exportRows } from './grid.js';
+import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
+import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName } from './env.js';
+
+// ================================================================ helpers
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function h(html) {
+  const t = document.createElement('template');
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+const fmtMs = (ms) => (ms < 1 ? '<1 ms' : ms < 1000 ? `${ms.toFixed(ms < 10 ? 1 : 0)} ms` : `${(ms / 1000).toFixed(2)} s`);
+const fmtBytes = (n) => (n === null || n === undefined ? '—' : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+const fmtNum = (n) => (typeof n === 'number' ? n.toLocaleString() : String(n));
+const now = () => performance.now();
+const timeOfDay = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const errText = (e) => (e?.code ? `${e.code}: ${e.message}` : String(e?.message ?? e));
+
+function toast(text, kind = '') {
+  const el = h(`<div class="toast ${kind}"></div>`);
+  el.textContent = text;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), kind === 'err' ? 8000 : 3500);
+}
+
+function status(text, kind = '') {
+  const el = $('#stMsg');
+  el.textContent = text;
+  el.className = 'grow ' + kind;
+}
+
+/** Open a modal. `body` is HTML; buttons: [{ label, value, primary, danger }]. Resolves with the clicked value (or null). */
+function modal({ title, body, buttons = [{ label: 'Close', value: null }], onOpen, wide = false }) {
+  const dlg = $('#modal');
+  const inner = $('#modalInner');
+  dlg.style.width = wide ? 'min(900px, calc(100vw - 32px))' : '';
+  inner.innerHTML = `<div class="modal-head"><span>${esc(title)}</span><button type="button" class="icon" data-x aria-label="Close">✕</button></div>
+    <div class="modal-body">${body}</div>
+    <div class="modal-foot">${buttons.map((b, i) => `<button type="${b.primary ? 'submit' : 'button'}" data-i="${i}" class="${b.primary ? 'primary' : ''} ${b.danger ? 'danger' : ''}">${esc(b.label)}</button>`).join('')}</div>`;
+  return new Promise((resolve) => {
+    let result = null;
+    const done = (v) => {
+      result = v;
+      dlg.close();
+    };
+    inner.onsubmit = (e) => {
+      e.preventDefault();
+      const b = buttons.find((x) => x.primary);
+      done(b ? (typeof b.value === 'function' ? b.value(inner) : b.value) : null);
+    };
+    inner.querySelector('[data-x]').onclick = () => done(null);
+    inner.querySelectorAll('.modal-foot button[type=button]').forEach((btn) => {
+      btn.onclick = () => {
+        const b = buttons[Number(btn.dataset.i)];
+        done(typeof b.value === 'function' ? b.value(inner) : b.value);
+      };
+    });
+    dlg.onclose = () => resolve(result);
+    dlg.showModal();
+    onOpen?.(inner, done);
+    const first = inner.querySelector('input, select, textarea');
+    (first ?? inner.querySelector('button.primary'))?.focus();
+  });
+}
+
+async function confirmBox(title, text, okLabel = 'OK', danger = false) {
+  return modal({ title, body: `<p>${text}</p>`, buttons: [{ label: 'Cancel', value: false }, { label: okLabel, value: true, primary: true, danger }] });
+}
+
+function showValue(value, title = 'Value') {
+  let text = plainValue(value);
+  let note = value === null || value === undefined ? 'NULL' : value instanceof Uint8Array ? `BLOB, ${value.length} bytes` : typeof value === 'bigint' ? 'INTEGER (64-bit)' : typeof value;
+  if (typeof value === 'string' && /^\s*[[{]/.test(value)) {
+    try {
+      text = JSON.stringify(JSON.parse(value), null, 2);
+      note += ' · JSON';
+    } catch {}
+  }
+  modal({
+    title,
+    body: `<p>${esc(note)}${typeof value === 'string' ? ` · ${value.length.toLocaleString()} chars` : ''}</p><pre class="value">${esc(text)}</pre>`,
+    buttons: [{ label: 'Copy', value: () => navigator.clipboard?.writeText(text) }, { label: 'Close', value: null, primary: true }],
+    wide: true,
+  });
+}
+
+function contextMenu(x, y, items) {
+  const m = $('#ctxMenu');
+  m.innerHTML = '';
+  for (const it of items) {
+    if (it === '-') m.appendChild(h('<hr>'));
+    else {
+      const b = h(`<button type="button">${esc(it.label)}</button>`);
+      if (it.danger) b.classList.add('danger');
+      b.onclick = () => {
+        m.hidden = true;
+        it.run();
+      };
+      m.appendChild(b);
+    }
+  }
+  m.hidden = false;
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
+  m.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
+}
+document.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('#ctxMenu')) $('#ctxMenu').hidden = true;
+  if (!e.target.closest('.menu-wrap')) $('#moreMenu').hidden = true;
+});
+
+/** Vertical/horizontal drag splitters. */
+function dragSplit(handle, onMove, onEnd) {
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    handle.classList.add('drag');
+    const move = (ev) => onMove(ev);
+    const up = () => {
+      handle.classList.remove('drag');
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      onEnd?.();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  });
+}
+
+// ================================================================ state
+
+const app = {
+  engine: null,
+  db: null,
+  dbName: null,
+  storage: null,
+  schema: { objects: [], tables: new Map(), names: new Set(), external: [] },
+  tabs: [],
+  active: null,
+  /** Registered files: name → { source, handle?, state: 'ok'|'needs-permission'|'missing' } */
+  files: new Map(),
+  /** Open result streams (they block this tab's writes until closed). */
+  streams: new Set(),
+  env: null,
+};
+window.smaltui = app; // handy from the devtools console: smaltui.db.query(…)
+
+const OBJECT_KINDS = {
+  'BASE TABLE': { group: 'Tables', ico: '▦', kind: 'table' },
+  VIEW: { group: 'Views', ico: '◫', kind: 'view' },
+  'MATERIALIZED VIEW': { group: 'Materialized views', ico: '◧', kind: 'matview' },
+  EXTERNAL: { group: 'External tables', ico: '⇄', kind: 'external' },
+  'LOCAL TEMPORARY': { group: 'Temporary tables', ico: '▢', kind: 'temp' },
+};
+
+// ================================================================ database lifecycle
+
+async function closeStreams() {
+  const all = [...app.streams];
+  app.streams.clear();
+  await Promise.all(all.map((s) => s.close()));
+}
+
+/** Run a write safely: open result cursors are closed first (they would make writes fail with SMALT_BUSY). */
+async function write(fn) {
+  await closeStreams();
+  return fn(app.db);
+}
+
+async function openDatabase(name, storage = 'opfs', { quiet = false } = {}) {
+  if (storage === 'opfs' && !opfsAvailable()) {
+    toast('OPFS is not available here (it needs a secure context: https or localhost). Opening in memory instead.', 'err');
+    storage = 'memory';
+  }
+  setDbIndicator('busy', name, storage);
+  if (app.db) {
+    await closeStreams();
+    for (const t of [...app.tabs]) if (t.kind === 'table') closeTab(t, true);
+    try {
+      await app.db.close();
+    } catch {}
+    app.db = null;
+  }
+  const t0 = now();
+  try {
+    app.db = await app.engine.open(name, { storage });
+  } catch (e) {
+    setDbIndicator('off', name, storage);
+    throw e;
+  }
+  app.dbName = name;
+  app.storage = storage;
+  prefs.set('lastDb', { name, storage });
+  const url = new URL(location.href);
+  url.searchParams.set('db', name);
+  if (storage === 'memory') url.searchParams.set('storage', 'memory');
+  else url.searchParams.delete('storage');
+  history.replaceState(null, '', url);
+  setDbIndicator('on', name, storage);
+  await restoreFiles();
+  await refreshSchema();
+  updateModeStatus();
+  if (!quiet) status(`Opened ${name} (${storage}) in ${fmtMs(now() - t0)}`);
+  for (const t of app.tabs) t.onDatabase?.();
+}
+
+function setDbIndicator(state, name, storage) {
+  $('#dbDot').className = 'db-dot ' + (state === 'on' ? 'on' : state === 'busy' ? 'busy' : '');
+  $('#dbName').textContent = name ?? 'no database';
+  $('#dbStorage').textContent = storage ?? '';
+  document.title = name ? `${name} · smaltui` : 'smaltui';
+}
+
+function updateModeStatus() {
+  const parts = [];
+  parts.push(crossOriginIsolated ? 'isolated · parallel readers' : 'not isolated');
+  if (app.db) parts.push(app.db.isLeader ? 'owner tab' : 'shared (another tab owns the engine)');
+  $('#stMode').textContent = parts.join(' · ');
+}
+
+async function dbPicker() {
+  const list = await listOpfsDatabases();
+  const rows = list
+    .map(
+      (d) => `<div class="db-row" data-name="${esc(d.name)}">
+        <span class="nm">${esc(d.name)}</span>
+        <span class="meta">${fmtBytes(d.size)}${d.modified ? ' · ' + new Date(d.modified).toLocaleString() : ''}</span>
+        ${d.name === app.dbName && app.storage === 'opfs' ? '<span class="cur">● open</span>' : ''}
+        <span class="acts"><button type="button" data-open>Open</button><button type="button" class="danger" data-del ${d.name === app.dbName && app.storage === 'opfs' ? 'disabled title="Close it first (open another database)"' : ''}>Delete</button></span>
+      </div>`,
+    )
+    .join('');
+  const body = `
+    ${opfsAvailable() ? `<p>Databases saved in this browser's private storage (OPFS) for <b>${esc(location.origin)}</b>.</p><div class="db-list">${rows || '<div class="db-row"><span class="meta">No saved databases yet.</span></div>'}</div>` : '<p>OPFS is not available in this context, so only in-memory databases can be opened.</p>'}
+    <div class="row">
+      <label class="field"><span>New or existing database name</span><input type="text" name="dbname" placeholder="e.g. sales" pattern="[A-Za-z0-9_\\-\\.]+" title="letters, digits, _ - ."></label>
+      <label class="field" style="flex:0 0 auto"><span>Storage</span>
+        <select name="storage">${opfsAvailable() ? '<option value="opfs">OPFS (persistent)</option>' : ''}<option value="memory">Memory (discarded on reload)</option></select></label>
+    </div>`;
+  const r = await modal({
+    title: 'Databases',
+    body,
+    buttons: [
+      { label: 'Cancel', value: null },
+      { label: 'Open', primary: true, value: (f) => ({ name: f.dbname.value.trim(), storage: f.storage.value }) },
+    ],
+    onOpen: (form, done) => {
+      form.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => done({ name: b.closest('.db-row').dataset.name, storage: 'opfs' })));
+      form.querySelectorAll('[data-del]').forEach(
+        (b) =>
+          (b.onclick = async () => {
+            const name = b.closest('.db-row').dataset.name;
+            done({ del: name });
+          }),
+      );
+    },
+  });
+  if (!r) return;
+  if (r.del) {
+    if (await confirmBox('Delete database', `Delete <b>${esc(r.del)}</b> and all its data from this browser? This cannot be undone. Close it in other tabs first.`, 'Delete', true)) {
+      try {
+        await deleteOpfsDatabase(r.del);
+        toast(`Deleted ${r.del}`, 'ok');
+      } catch (e) {
+        toast(`Could not delete ${r.del}: ${e.message} (is it open in another tab?)`, 'err');
+      }
+    }
+    return dbPicker();
+  }
+  if (!r.name) return;
+  try {
+    await openDatabase(r.name, r.storage);
+  } catch (e) {
+    toast(`Could not open ${r.name}: ${errText(e)}`, 'err');
+  }
+}
+
+// ================================================================ linked files
+
+async function restoreFiles() {
+  // Files registered with the previous Database object must be registered again.
+  const keep = new Map();
+  for (const [name, f] of app.files) if (f.source && f.db === app.dbName) keep.set(name, f);
+  app.files = keep;
+  for (const [name, f] of app.files) await app.db.registerFile(name, f.source).catch(() => (f.state = 'missing'));
+  for (const { name, handle } of await loadFileHandles(app.dbName)) {
+    if (app.files.get(name)?.state === 'ok') continue;
+    let perm = 'prompt';
+    try {
+      perm = await handle.queryPermission({ mode: 'read' });
+    } catch {}
+    if (perm === 'granted') {
+      try {
+        await app.db.registerFile(name, handle);
+        app.files.set(name, { source: handle, handle, state: 'ok', db: app.dbName });
+        continue;
+      } catch {}
+    }
+    app.files.set(name, { handle, state: 'needs-permission', db: app.dbName });
+  }
+}
+
+async function linkFile(name, source, handle = null) {
+  await app.db.registerFile(name, source);
+  app.files.set(name, { source, handle, state: 'ok', db: app.dbName });
+  if (handle) await saveFileHandle(app.dbName, name, handle);
+  renderLinkedFiles();
+}
+
+async function regrantFile(name) {
+  const f = app.files.get(name);
+  if (f?.handle) {
+    try {
+      if ((await f.handle.requestPermission({ mode: 'read' })) === 'granted') {
+        await linkFile(name, f.handle, f.handle);
+        toast(`Reconnected file:${name}`, 'ok');
+        return;
+      }
+    } catch {}
+  }
+  // No handle (or permission refused): ask for the file again.
+  const picked = await pickLocalFile();
+  if (picked) {
+    await linkFile(name, picked.handle ?? picked.file, picked.handle);
+    toast(`Attached ${picked.file.name} as file:${name}`, 'ok');
+  }
+}
+
+/** Let the user choose a file: the File System Access picker (keeps a handle) or a plain input. */
+async function pickLocalFile(accept = '.csv,.tsv,.txt,.json,.ndjson,.jsonl') {
+  if (window.showOpenFilePicker) {
+    try {
+      const [handle] = await window.showOpenFilePicker({ types: [{ description: 'Data files', accept: { 'text/plain': accept.split(',') } }], excludeAcceptAllOption: false });
+      return { handle, file: await handle.getFile() };
+    } catch (e) {
+      if (e.name === 'AbortError') return null;
+    }
+  }
+  return new Promise((resolve) => {
+    const input = h(`<input type="file" accept="${accept}" hidden>`);
+    input.onchange = () => resolve(input.files[0] ? { file: input.files[0], handle: null } : null);
+    input.oncancel = () => resolve(null);
+    document.body.appendChild(input);
+    input.click();
+    setTimeout(() => input.remove(), 60000);
+  });
+}
+
+function renderLinkedFiles() {
+  const el = $('#linkedFiles');
+  const needed = new Set(app.schema.external.filter((x) => String(x.location).startsWith('file:')).map((x) => String(x.location).slice(5)));
+  const names = new Set([...app.files.keys(), ...needed]);
+  names.delete('__preview');
+  if (!names.size) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = `<div style="font-weight:600;margin-bottom:2px">Linked files</div>` + [...names].sort().map((n) => {
+    const f = app.files.get(n);
+    const st = f?.state === 'ok' ? '<span class="st ok">attached</span>' : f?.state === 'needs-permission' ? `<button class="icon st warn" data-regrant="${esc(n)}" title="Grant read access again">grant access</button>` : `<button class="icon st warn" data-regrant="${esc(n)}" title="Choose the file again">attach…</button>`;
+    return `<div class="lf"><span>📄</span><span class="nm" title="file:${esc(n)}">${esc(n)}</span>${st}</div>`;
+  }).join('');
+  el.querySelectorAll('[data-regrant]').forEach((b) => (b.onclick = () => regrantFile(b.dataset.regrant).catch((e) => toast(errText(e), 'err'))));
+}
+
+// ================================================================ schema / object explorer
+
+async function refreshSchema() {
+  if (!app.db) return;
+  const db = app.db;
+  try {
+    const [objects, columns, external, conns, pks] = await Promise.all([
+      db.query("SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema <> 'information_schema' ORDER BY table_name", [], { rowMode: 'object' }),
+      db.query("SELECT table_name, column_name, data_type, ordinal_position, is_nullable FROM information_schema.columns WHERE table_schema <> 'information_schema' ORDER BY table_name, ordinal_position", [], { rowMode: 'object' }),
+      db.query('SELECT table_name, location, format, connection_name FROM information_schema.external_tables', [], { rowMode: 'object' }).catch(() => []),
+      db.query('SELECT connection_name, url, credentials FROM information_schema.connections', [], { rowMode: 'object' }).catch(() => []),
+      db.query("SELECT k.table_name, k.column_name FROM information_schema.key_column_usage k JOIN information_schema.table_constraints c ON c.constraint_name = k.constraint_name AND c.table_name = k.table_name WHERE c.constraint_type = 'PRIMARY KEY'", [], { rowMode: 'object' }).catch(() => []),
+    ]);
+    const pkSet = new Set(pks.map((p) => `${p.table_name}\u0000${p.column_name}`));
+    const tables = new Map();
+    for (const o of objects) {
+      const arr = [];
+      arr.kind = OBJECT_KINDS[o.table_type]?.kind ?? 'table';
+      arr.type = o.table_type;
+      tables.set(o.table_name, arr);
+    }
+    for (const c of columns) {
+      const arr = tables.get(c.table_name);
+      if (arr) arr.push({ name: c.column_name, type: c.data_type, nullable: c.is_nullable === 'YES', pk: pkSet.has(`${c.table_name}\u0000${c.column_name}`) });
+    }
+    app.schema = { objects, tables, names: new Set([...tables.keys()].map((n) => n.toLowerCase())), external, connections: conns };
+  } catch (e) {
+    toast('Could not read the catalog: ' + errText(e), 'err');
+  }
+  renderTree();
+  renderLinkedFiles();
+  for (const t of app.tabs) t.onSchema?.();
+}
+
+const expanded = new Set(prefs.get('expanded', []));
+const collapsedGroups = new Set(prefs.get('collapsedGroups', []));
+
+function renderTree() {
+  const tree = $('#tree');
+  const filter = $('#treeFilter').value.trim().toLowerCase();
+  const groups = new Map();
+  for (const [name, cols] of app.schema.tables) {
+    const kind = OBJECT_KINDS[cols.type] ?? OBJECT_KINDS['BASE TABLE'];
+    if (filter && !name.toLowerCase().includes(filter) && !cols.some((c) => c.name.toLowerCase().includes(filter))) continue;
+    if (!groups.has(kind.group)) groups.set(kind.group, []);
+    groups.get(kind.group).push({ name, cols, kind });
+  }
+  const order = ['Tables', 'Views', 'Materialized views', 'External tables', 'Temporary tables'];
+  let html = '';
+  for (const g of order) {
+    const items = groups.get(g);
+    if (!items) continue;
+    const collapsed = collapsedGroups.has(g);
+    html += `<div class="tree-group${collapsed ? ' collapsed' : ''}" data-group="${esc(g)}"><div class="tree-label"><span>${collapsed ? '▸' : '▾'}</span>${esc(g)} <span class="count">${items.length}</span></div><div class="tree-items">`;
+    for (const it of items) {
+      const open = expanded.has(it.name) || (filter && it.cols.some((c) => c.name.toLowerCase().includes(filter)));
+      const ext = it.kind.kind === 'external' ? app.schema.external.find((x) => x.table_name === it.name) : null;
+      html += `<div class="tree-item${app.active?.objectName === it.name ? ' active' : ''}" role="treeitem" data-obj="${esc(it.name)}" title="${esc(it.name)}${ext ? ' → ' + esc(ext.location) : ''}">
+        <span class="twisty" data-twisty>${open ? '▾' : '▸'}</span><span class="ico">${it.kind.ico}</span><span class="nm">${esc(it.name)}</span><span class="meta" title="${it.cols.length} columns">${it.cols.length}</span></div>`;
+      if (open) {
+        html += `<div class="tree-cols">${it.cols.map((c) => `<div class="tree-col" data-col="${esc(c.name)}" data-of="${esc(it.name)}">${c.pk ? '<span class="pk" title="primary key">⚿</span>' : '<span style="width:9px"></span>'}<span>${esc(c.name)}</span><span class="ty">${esc(c.type ?? '')}</span></div>`).join('')}</div>`;
+      }
+    }
+    html += '</div></div>';
+  }
+  if (app.schema.connections?.length && !filter) {
+    const g = 'Connections';
+    const collapsed = collapsedGroups.has(g);
+    html += `<div class="tree-group${collapsed ? ' collapsed' : ''}" data-group="${g}"><div class="tree-label"><span>${collapsed ? '▸' : '▾'}</span>${g} <span class="count">${app.schema.connections.length}</span></div><div class="tree-items">`;
+    for (const c of app.schema.connections) html += `<div class="tree-item" data-conn="${esc(c.connection_name)}" title="${esc(c.url)}"><span class="twisty"></span><span class="ico">⌁</span><span class="nm">${esc(c.connection_name)}</span><span class="meta">${c.credentials ? '🔑' : ''}</span></div>`;
+    html += '</div></div>';
+  }
+  if (!html) {
+    html = filter
+      ? `<div class="tree-empty">Nothing matches “${esc(filter)}”.</div>`
+      : `<div class="tree-empty">This database is empty.<br>Create a table in a query tab, or <a href="#" data-goto-import>import a file</a>.</div>`;
+  }
+  tree.innerHTML = html;
+  tree.querySelector('[data-goto-import]')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    openImportTab();
+  });
+}
+
+function wireTree() {
+  const tree = $('#tree');
+  tree.addEventListener('click', (e) => {
+    const label = e.target.closest('.tree-label');
+    if (label) {
+      const g = label.parentElement.dataset.group;
+      collapsedGroups.has(g) ? collapsedGroups.delete(g) : collapsedGroups.add(g);
+      prefs.set('collapsedGroups', [...collapsedGroups]);
+      renderTree();
+      return;
+    }
+    const item = e.target.closest('[data-obj]');
+    if (item) {
+      const name = item.dataset.obj;
+      if (e.target.closest('[data-twisty]')) {
+        expanded.has(name) ? expanded.delete(name) : expanded.add(name);
+        prefs.set('expanded', [...expanded]);
+        renderTree();
+      } else openTableTab(name);
+      document.body.classList.remove('side-open');
+      return;
+    }
+    const col = e.target.closest('[data-col]');
+    if (col) insertIntoEditor(quoteIdent(col.dataset.col));
+    const conn = e.target.closest('[data-conn]');
+    if (conn) {
+      const c = app.schema.connections.find((x) => x.connection_name === conn.dataset.conn);
+      showValue(`${c.url}${c.credentials ? `\ncredentials: ${c.credentials}` : ''}`, `Connection ${c.connection_name}`);
+    }
+  });
+  tree.addEventListener('dblclick', (e) => {
+    const item = e.target.closest('[data-obj]');
+    if (item && !e.target.closest('[data-twisty]')) insertIntoEditor(quoteIdent(item.dataset.obj));
+  });
+  tree.addEventListener('contextmenu', (e) => {
+    const item = e.target.closest('[data-obj]');
+    const conn = e.target.closest('[data-conn]');
+    if (!item && !conn) return;
+    e.preventDefault();
+    if (conn) {
+      const name = conn.dataset.conn;
+      contextMenu(e.clientX, e.clientY, [
+        { label: 'Copy name', run: () => navigator.clipboard?.writeText(name) },
+        { label: 'Script DROP CONNECTION', run: () => newQueryTab({ sql: `DROP CONNECTION ${quoteIdent(name)};\n` }) },
+      ]);
+      return;
+    }
+    objectMenu(item.dataset.obj, e.clientX, e.clientY);
+  });
+  $('#treeFilter').addEventListener('input', renderTree);
+  $('#btnRefreshTree').onclick = () => refreshSchema();
+}
+
+function objectMenu(name, x, y) {
+  const cols = app.schema.tables.get(name) ?? [];
+  const kind = cols.kind;
+  const q = quoteIdent(name);
+  const items = [
+    { label: 'Open data', run: () => openTableTab(name) },
+    { label: 'Query in new tab', run: () => newQueryTab({ sql: `SELECT *\nFROM ${q}\nLIMIT 100;\n`, run: true }) },
+    { label: 'Insert name into editor', run: () => insertIntoEditor(q) },
+    '-',
+    { label: 'Script SELECT with columns', run: () => newQueryTab({ sql: `SELECT ${cols.map((c) => quoteIdent(c.name)).join(',\n       ')}\nFROM ${q};\n` }) },
+  ];
+  if (kind === 'table') {
+    items.push({ label: 'Script INSERT', run: () => newQueryTab({ sql: `INSERT INTO ${q} (${cols.map((c) => quoteIdent(c.name)).join(', ')})\nVALUES (${cols.map(() => '?').join(', ')});\n` }) });
+    items.push({ label: 'Script UPDATE', run: () => newQueryTab({ sql: `UPDATE ${q}\nSET ${cols.filter((c) => !c.pk).map((c) => `${quoteIdent(c.name)} = ?`).join(',\n    ')}\nWHERE ${cols.filter((c) => c.pk).map((c) => `${quoteIdent(c.name)} = ?`).join(' AND ') || '…'};\n` }) });
+  }
+  items.push({ label: 'Script CREATE (DDL)', run: async () => newQueryTab({ sql: (await ddlFor(name)) + '\n' }) });
+  items.push({ label: 'Count rows', run: () => countRows(name) });
+  if (kind === 'matview') items.push({ label: 'Refresh materialized view', run: () => runAdHoc(`REFRESH MATERIALIZED VIEW ${q}`) });
+  items.push('-');
+  items.push({ label: 'Export as CSV', run: () => exportObject(name, 'csv') });
+  items.push({ label: 'Export as JSON', run: () => exportObject(name, 'json') });
+  items.push('-');
+  const dropKw = { table: 'TABLE', view: 'VIEW', matview: 'MATERIALIZED VIEW', external: 'EXTERNAL TABLE', temp: 'TABLE' }[kind] ?? 'TABLE';
+  items.push({
+    label: `Drop ${dropKw.toLowerCase()}…`,
+    danger: true,
+    run: async () => {
+      const note = kind === 'external' ? 'Only the catalog entry is removed; the source file or URL is not touched.' : 'This deletes it and its data.';
+      if (await confirmBox(`Drop ${name}`, `Run <code>DROP ${dropKw} ${esc(q)}</code>? ${note}`, 'Drop', true)) runAdHoc(`DROP ${dropKw} ${q}`);
+    },
+  });
+  contextMenu(x, y, items);
+}
+
+async function ddlFor(name) {
+  const r = await app.db.query('SELECT sql FROM sqlite_schema WHERE name = ?', [name], { rowMode: 'array' });
+  return r[0]?.[0] ? formatDdl(r[0][0]) + ';' : `-- no DDL recorded for ${name}`;
+}
+
+function formatDdl(sql) {
+  // Put each column definition of CREATE TABLE on its own line.
+  const m = /^(\s*CREATE\s+(?:TEMP\w*\s+|LOOSE\s+)?TABLE\s+[^(]+)\(([\s\S]*)\)([^)]*)$/i.exec(sql);
+  if (!m || m[2].includes('\n')) return sql;
+  const parts = [];
+  let depth = 0;
+  let cur = '';
+  let quote = null;
+  for (const ch of m[2]) {
+    if (quote) {
+      cur += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') quote = ch;
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(cur.trim());
+      cur = '';
+    } else cur += ch;
+  }
+  parts.push(cur.trim());
+  return `${m[1].trim()} (\n  ${parts.join(',\n  ')}\n)${m[3]}`;
+}
+
+async function countRows(name) {
+  try {
+    const t0 = now();
+    const r = await app.db.query(`SELECT count(*) FROM ${quoteIdent(name)}`, [], { rowMode: 'array' });
+    toast(`${name}: ${fmtNum(Number(r[0][0]))} rows (${fmtMs(now() - t0)})`, 'ok');
+  } catch (e) {
+    toast(errText(e), 'err');
+  }
+}
+
+async function exportObject(name, format) {
+  try {
+    const text = format === 'csv' ? await app.db.exportCSV(`SELECT * FROM ${quoteIdent(name)}`) : await app.db.exportJSON(`SELECT * FROM ${quoteIdent(name)}`);
+    download(`${name}.${format}`, text, format === 'csv' ? 'text/csv' : 'application/json');
+  } catch (e) {
+    toast(errText(e), 'err');
+  }
+}
+
+async function runAdHoc(sql) {
+  try {
+    const t0 = now();
+    await write((db) => db.exec(sql));
+    status(`${leadingKeyword(sql)} done in ${fmtMs(now() - t0)}`);
+    addHistory({ sql, db: app.dbName, at: Date.now(), ms: now() - t0 });
+    if (changesSchema(sql)) await refreshSchema();
+  } catch (e) {
+    toast(errText(e), 'err');
+  }
+}
+
+// ================================================================ tabs
+
+let tabSeq = 0;
+
+function addTab(tab) {
+  tab.id = ++tabSeq;
+  tab.el = h(`<div class="pane" role="tabpanel"></div>`);
+  $('#panes').appendChild(tab.el);
+  app.tabs.push(tab);
+  tab.init?.();
+  renderTabs();
+  activateTab(tab);
+  return tab;
+}
+
+function renderTabs() {
+  const strip = $('#tabs');
+  strip.innerHTML = '';
+  for (const t of app.tabs) {
+    const el = h(`<div class="tab${t === app.active ? ' active' : ''}" role="tab" draggable="true" title="${esc(t.tooltip ?? t.title)}">
+      <span class="tab-ico">${t.icon}</span><span class="tab-title">${esc(t.title)}</span>${t.busy ? '<span class="busy-dot"></span>' : ''}
+      <button class="tab-close" title="Close (Ctrl+W)" aria-label="Close tab">✕</button></div>`);
+    el.onclick = (e) => {
+      if (e.target.closest('.tab-close')) closeTab(t);
+      else activateTab(t);
+    };
+    el.onauxclick = (e) => e.button === 1 && closeTab(t);
+    el.ondblclick = (e) => {
+      if (t.kind === 'query' && !e.target.closest('.tab-close')) renameTab(t);
+    };
+    el.ondragstart = (e) => e.dataTransfer.setData('text/x-tab', String(t.id));
+    el.ondragover = (e) => e.preventDefault();
+    el.ondrop = (e) => {
+      const id = Number(e.dataTransfer.getData('text/x-tab'));
+      const from = app.tabs.findIndex((x) => x.id === id);
+      const to = app.tabs.indexOf(t);
+      if (from < 0 || from === to) return;
+      const [moved] = app.tabs.splice(from, 1);
+      app.tabs.splice(to, 0, moved);
+      renderTabs();
+      saveQueryTabs();
+    };
+    strip.appendChild(el);
+  }
+  const plus = h(`<button class="icon" title="New query tab" style="align-self:center;margin-left:4px">＋</button>`);
+  plus.onclick = () => newQueryTab();
+  strip.appendChild(plus);
+}
+
+function activateTab(t) {
+  app.active = t;
+  for (const x of app.tabs) x.el.classList.toggle('active', x === t);
+  renderTabs();
+  $('#tabs .tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  t.onShow?.();
+  $$('#tree .tree-item').forEach((el) => el.classList.toggle('active', el.dataset.obj === t.objectName));
+}
+
+function closeTab(t, silent = false) {
+  const i = app.tabs.indexOf(t);
+  if (i < 0) return;
+  t.dispose?.();
+  t.el.remove();
+  app.tabs.splice(i, 1);
+  if (app.active === t) {
+    const next = app.tabs[Math.min(i, app.tabs.length - 1)];
+    if (next) activateTab(next);
+    else if (!silent) newQueryTab();
+    else app.active = null;
+  }
+  renderTabs();
+  saveQueryTabs();
+}
+
+async function renameTab(t) {
+  const name = await modal({
+    title: 'Rename tab',
+    body: `<label class="field"><span>Title</span><input type="text" name="t" value="${esc(t.title)}"></label>`,
+    buttons: [{ label: 'Cancel', value: null }, { label: 'Rename', primary: true, value: (f) => f.t.value.trim() }],
+  });
+  if (name) {
+    t.title = name;
+    renderTabs();
+    saveQueryTabs();
+  }
+}
+
+function saveQueryTabs() {
+  const tabs = app.tabs.filter((t) => t.kind === 'query').map((t) => ({ title: t.title, sql: t.editor?.value ?? t.sql ?? '' }));
+  prefs.set('queryTabs', tabs);
+}
+
+function insertIntoEditor(text) {
+  let t = app.active?.kind === 'query' ? app.active : [...app.tabs].reverse().find((x) => x.kind === 'query');
+  if (!t) t = newQueryTab();
+  activateTab(t);
+  t.editor.insert(text);
+}
+
+// ================================================================ query tab
+
+let querySeq = 0;
+const FETCH_ROWS = 1000;
+
+function newQueryTab({ title, sql = '', run = false } = {}) {
+  const tab = queryTab(title ?? `Query ${++querySeq}`, sql);
+  addTab(tab);
+  saveQueryTabs();
+  if (run) tab.run('statement');
+  else tab.editor.focus();
+  return tab;
+}
+
+function queryTab(title, sql) {
+  const tab = {
+    kind: 'query',
+    title,
+    icon: '⌨',
+    sql,
+    results: [],
+    messages: [],
+    binds: {},
+    busy: false,
+    init() {
+      const el = this.el;
+      el.innerHTML = `
+        <div class="toolbar">
+          <button class="primary run-btn" data-run title="Run statement at cursor, or the selection (Ctrl+Enter)">▶ Run</button>
+          <button data-script title="Run the whole script, statement by statement (Ctrl+Shift+Enter / F5)">▶▶ Script</button>
+          <button data-explain title="Show the query plan (Ctrl+E)">Explain</button>
+          <button data-analyze title="EXPLAIN ANALYZE: run it and show estimated vs actual rows per operator">Analyze</button>
+          <button data-stop disabled title="Cancel the running statement (Esc)">■ Stop</button>
+          <span class="sep"></span>
+          <button class="ghost" data-format title="Format SQL (Ctrl+Shift+F)">Format</button>
+          <button class="ghost" data-open title="Open a .sql file">Open…</button>
+          <button class="ghost" data-save title="Save as .sql (Ctrl+S)">Save</button>
+          <span class="grow"></span>
+          <label class="hint"><input type="checkbox" data-continue> continue script on error</label>
+        </div>
+        <div class="qsplit">
+          <div class="ed-host"></div>
+          <div class="hsplitter" title="Drag to resize"></div>
+          <div class="results">
+            <div class="subtabs"></div>
+            <div class="subpanes"></div>
+          </div>
+        </div>`;
+      const host = $('.ed-host', el);
+      this.editor = new Editor(host, {
+        value: this.sql,
+        schema: () => app.schema,
+        onChange: debounce(() => saveQueryTabs(), 400),
+        keys: {
+          'Mod+Enter': () => this.run('statement'),
+          'Shift+Mod+Enter': () => this.run('script'),
+          F5: () => this.run('script'),
+          'Mod+E': () => this.run('statement', 'plan'),
+          'Shift+Mod+F': () => this.format(),
+          'Mod+S': () => this.save(),
+          Escape: () => this.stop(),
+        },
+      });
+      const split = $('.qsplit', el);
+      split.style.setProperty('--ed-h', prefs.get('editorHeight', '42%'));
+      dragSplit(
+        $('.hsplitter', el),
+        (ev) => {
+          const r = split.getBoundingClientRect();
+          const pct = Math.max(12, Math.min(85, ((ev.clientY - r.top) / r.height) * 100));
+          split.style.setProperty('--ed-h', pct + '%');
+        },
+        () => prefs.set('editorHeight', split.style.getPropertyValue('--ed-h')),
+      );
+      $('[data-run]', el).onclick = () => this.run('statement');
+      $('[data-script]', el).onclick = () => this.run('script');
+      $('[data-explain]', el).onclick = () => this.run('statement', 'plan');
+      $('[data-analyze]', el).onclick = () => this.run('statement', 'analyze');
+      $('[data-stop]', el).onclick = () => this.stop();
+      $('[data-format]', el).onclick = () => this.format();
+      $('[data-save]', el).onclick = () => this.save();
+      $('[data-open]', el).onclick = () => this.openFile();
+      this.renderResults();
+    },
+    onShow() {
+      requestAnimationFrame(() => {
+        this.editor.render();
+        this.editor.focus();
+        this.grids?.forEach((g) => g.renderRows(true));
+      });
+    },
+    onSchema() {
+      this.editor.render();
+    },
+    format() {
+      const sel = this.editor.selection();
+      if (sel) this.editor.insert(formatSql(sel).trimEnd());
+      else this.editor.replaceAll(formatSql(this.editor.value));
+    },
+    save() {
+      const name = (this.title.replace(/[^\w.-]+/g, '_') || 'query') + '.sql';
+      download(name, this.editor.value, 'application/sql');
+    },
+    async openFile() {
+      const picked = await pickLocalFile('.sql,.txt');
+      if (!picked) return;
+      this.editor.replaceAll(await picked.file.text());
+      this.title = picked.file.name.replace(/\.sql$/i, '');
+      renderTabs();
+      saveQueryTabs();
+    },
+    stop() {
+      this.abort?.abort();
+    },
+    setBusy(b) {
+      this.busy = b;
+      $('[data-stop]', this.el).disabled = !b;
+      $('[data-run]', this.el).disabled = b;
+      $('[data-script]', this.el).disabled = b;
+      setDbIndicator(b ? 'busy' : 'on', app.dbName, app.storage);
+      renderTabs();
+    },
+    async run(scope, mode = 'run') {
+      if (this.busy) return;
+      if (!app.db) return toast('No database is open', 'err');
+      const text = this.editor.value;
+      const range = this.editor.selectionRange();
+      let stmts;
+      if (range.start !== range.end) stmts = splitStatements(text.slice(range.start, range.end)).map((s) => ({ ...s, start: s.start + range.start, end: s.end + range.start }));
+      else if (scope === 'script') stmts = splitStatements(text);
+      else {
+        const s = this.editor.currentStatement();
+        stmts = s ? [s] : [];
+      }
+      if (!stmts.length) return status('Nothing to run');
+      if (mode !== 'run') stmts = stmts.slice(0, 1);
+      await closeStreams();
+      this.abort = new AbortController();
+      const signal = this.abort.signal;
+      this.setBusy(true);
+      this.results = [];
+      this.plan = null;
+      this.messages = [];
+      this.errorAt = null;
+      const scriptT0 = now();
+      let schemaChanged = false;
+      let failed = 0;
+      const continueOnError = $('[data-continue]', this.el).checked;
+      for (const st of stmts) {
+        if (signal.aborted) break;
+        let sql = st.sql;
+        if (mode === 'plan') sql = 'EXPLAIN QUERY PLAN ' + sql;
+        if (mode === 'analyze') sql = 'EXPLAIN ANALYZE ' + sql;
+        const slots = scanParams(st.sql);
+        let params;
+        if (slots.length) {
+          params = await this.askBinds(slots);
+          if (params === null) {
+            this.messages.push({ kind: 'warn', text: 'Cancelled (no bind values)', sql: st.sql, at: timeOfDay() });
+            break;
+          }
+        }
+        const t0 = now();
+        try {
+          if (mode === 'plan') {
+            const r = await app.db.query(sql, params, { rowMode: 'array', signal });
+            this.plan = { sql: st.sql, rows: r, columns: r.columns };
+            this.messages.push({ kind: 'ok', text: `Plan ready (${fmtMs(now() - t0)})`, sql: st.sql, at: timeOfDay() });
+          } else if (returnsRows(sql)) {
+            const res = await this.fetchResult(sql, params, signal, st === stmts[stmts.length - 1]);
+            res.ms = now() - t0;
+            res.sql = st.sql;
+            this.results.push(res);
+            if (mode === 'analyze') this.plan = { sql: st.sql, rows: res.rows, columns: res.columns, analyze: true };
+            this.messages.push({ kind: 'ok', text: `${fmtNum(res.rows.length)}${res.more ? '+' : ''} row${res.rows.length === 1 ? '' : 's'} in ${fmtMs(res.ms)}`, sql: st.sql, at: timeOfDay() });
+          } else {
+            const r = await write((db) => db.exec(sql, params, { signal }));
+            const kw = leadingKeyword(sql);
+            const ms = now() - t0;
+            const what = ['INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'WITH'].includes(kw) ? `${fmtNum(r.changes)} row${r.changes === 1 ? '' : 's'} affected` : `${kw || 'Statement'} OK`;
+            this.messages.push({ kind: 'ok', text: `${what} (${fmtMs(ms)})`, sql: st.sql, at: timeOfDay() });
+            if (changesSchema(sql)) schemaChanged = true;
+          }
+          addHistory({ sql: st.sql, db: app.dbName, at: Date.now(), ms: now() - t0 });
+        } catch (e) {
+          failed++;
+          this.messages.push({ kind: 'err', text: errText(e), sql: st.sql, at: timeOfDay() });
+          addHistory({ sql: st.sql, db: app.dbName, at: Date.now(), error: errText(e) });
+          this.markError(st, e);
+          if (!continueOnError || e.code === 'SMALT_INTERRUPT') break;
+        }
+      }
+      const total = now() - scriptT0;
+      this.setBusy(false);
+      $('#stTiming').textContent = `${stmts.length > 1 ? stmts.length + ' statements · ' : ''}${fmtMs(total)}`;
+      if (failed) status(`${failed} statement${failed > 1 ? 's' : ''} failed`, 'err');
+      else status(stmts.length > 1 ? `Script finished: ${stmts.length} statements` : this.messages.at(-1)?.text ?? 'Done');
+      const view = mode !== 'run' ? 'plan' : failed && !this.results.length ? 'messages' : this.results.length ? 'r0' : 'messages';
+      this.renderResults(view);
+      if (schemaChanged) refreshSchema();
+    },
+    markError(st, e) {
+      const m = /line (\d+), column (\d+)/.exec(e?.message ?? '');
+      let start = st.start;
+      let end = st.end;
+      if (m) {
+        const lines = st.sql.split('\n');
+        const line = Number(m[1]) - 1;
+        const col = Number(m[2]) - 1;
+        let off = 0;
+        for (let i = 0; i < line && i < lines.length; i++) off += lines[i].length + 1;
+        off += col;
+        const tail = st.sql.slice(off);
+        const len = Math.max(1, (/^[\w$]+|^\S/.exec(tail)?.[0] ?? ' ').length);
+        start = st.start + off;
+        end = Math.min(st.end, start + len);
+      }
+      this.editor.highlightRange(start, end);
+    },
+    async askBinds(slots) {
+      const body = `<p>The statement has parameters. Empty values with type “auto” are sent as NULL.</p>` +
+        slots
+          .map((s, i) => {
+            const prev = this.binds[s.label] ?? { v: '', t: 'auto' };
+            return `<div class="row"><label class="field"><span class="mono">${esc(s.label)}</span><input type="text" name="v${i}" value="${esc(prev.v)}"></label>
+              <label class="field" style="flex:0 0 120px"><span>Type</span><select name="t${i}">${['auto', 'text', 'integer', 'real', 'null'].map((t) => `<option ${t === prev.t ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>`;
+          })
+          .join('');
+      return modal({
+        title: 'Bind variables',
+        body,
+        buttons: [
+          { label: 'Cancel', value: null },
+          {
+            label: 'Run',
+            primary: true,
+            value: (f) => {
+              const vals = [];
+              slots.forEach((s, i) => {
+                const v = f[`v${i}`].value;
+                const t = f[`t${i}`].value;
+                this.binds[s.label] = { v, t };
+                vals[s.index - 1] = coerce(v, t);
+              });
+              return vals;
+            },
+          },
+        ],
+      });
+    },
+    async fetchResult(sql, params, signal, keepOpen) {
+      const it = app.db.stream(sql, params, { rowMode: 'array', signal, batchSize: 500 });
+      const res = { columns: null, rows: [], more: null, sql };
+      let done = false;
+      while (res.rows.length < FETCH_ROWS) {
+        const n = await it.next();
+        if (n.done) {
+          done = true;
+          break;
+        }
+        res.columns ??= n.value.columns;
+        for (const r of n.value) res.rows.push(r);
+      }
+      if (!res.columns) {
+        try {
+          const st = await app.db.prepare(sql);
+          res.columns = st.columns ?? [];
+          await st.finalize();
+        } catch {
+          res.columns = [];
+        }
+      }
+      if (!done) {
+        if (keepOpen) {
+          const cursor = {
+            it,
+            close: async () => {
+              res.more = null;
+              res.closed = true;
+              await it.return?.();
+              this.refreshResultBar();
+            },
+          };
+          res.more = cursor;
+          app.streams.add(cursor);
+        } else {
+          await it.return?.();
+          res.closed = true;
+        }
+      }
+      return res;
+    },
+    async fetchMore(res, all = false) {
+      const cursor = res.more;
+      if (!cursor) return;
+      const grid = this.grids[this.results.indexOf(res)];
+      const t0 = now();
+      let n = 0;
+      try {
+        while (all || n < FETCH_ROWS) {
+          const x = await cursor.it.next();
+          if (x.done) {
+            app.streams.delete(cursor);
+            res.more = null;
+            break;
+          }
+          for (const r of x.value) res.rows.push(r); // the grid shares res.rows
+          grid.refresh();
+          n += x.value.length;
+          if (all && n % 20000 < 500) this.refreshResultBar();
+        }
+      } catch (e) {
+        app.streams.delete(cursor);
+        res.more = null;
+        toast(errText(e), 'err');
+      }
+      status(`Fetched ${fmtNum(n)} more rows in ${fmtMs(now() - t0)}`);
+      this.refreshResultBar();
+    },
+    renderResults(view = 'messages') {
+      const tabsEl = $('.subtabs', this.el);
+      const panes = $('.subpanes', this.el);
+      tabsEl.innerHTML = '';
+      panes.innerHTML = '';
+      this.grids = [];
+      const views = [];
+      this.results.slice(0, 20).forEach((res, i) => {
+        views.push({
+          key: 'r' + i,
+          label: this.results.length > 1 ? `Result ${i + 1}` : 'Result',
+          badge: fmtNum(res.rows.length) + (res.more ? '+' : ''),
+          build: (pane) => {
+            const gridHost = h('<div class="grid"></div>');
+            pane.appendChild(gridHost);
+            const grid = new Grid(gridHost, { onOpenValue: (r, c) => showValue(res.rows[r][c], res.columns[c]) });
+            grid.setData(res.columns, res.rows);
+            this.grids[i] = grid;
+            const bar = h(`<div class="result-bar" data-bar="${i}"></div>`);
+            pane.appendChild(bar);
+            this.fillBar(bar, res, grid);
+          },
+        });
+      });
+      views.push({
+        key: 'messages',
+        label: 'Messages',
+        badge: this.messages.length ? String(this.messages.length) : '',
+        err: this.messages.some((m) => m.kind === 'err'),
+        build: (pane) => {
+          const box = h('<div class="messages"></div>');
+          box.innerHTML = this.messages.length
+            ? this.messages.map((m) => `<div class="msg ${m.kind}"><span class="t">${m.at}</span><div><span class="b">${esc(m.text)}</span><code class="sql">${esc(m.sql.length > 300 ? m.sql.slice(0, 300) + '…' : m.sql)}</code></div></div>`).join('')
+            : `<div class="placeholder"><h3>Ready</h3>Write SQL above and press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run the statement under the cursor,<br>or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> to run the whole script. <kbd>Ctrl</kbd>+<kbd>Space</kbd> completes names.</div>`;
+          pane.appendChild(box);
+        },
+      });
+      if (this.plan) {
+        views.push({
+          key: 'plan',
+          label: this.plan.analyze ? 'Analyze' : 'Plan',
+          build: (pane) => {
+            const p = this.plan;
+            const cols = p.columns ?? [];
+            if (cols.includes('detail') && cols.includes('parent') && !p.analyze) {
+              const box = h('<div class="plan"></div>');
+              box.textContent = planTree(p.rows, cols);
+              pane.appendChild(box);
+            } else {
+              const gh = h('<div class="grid"></div>');
+              pane.appendChild(gh);
+              new Grid(gh).setData(cols, p.rows);
+            }
+          },
+        });
+      }
+      for (const v of views) {
+        const b = h(`<button class="subtab${v.err ? ' err' : ''}" data-view="${v.key}">${esc(v.label)}${v.badge ? `<span class="badge">${esc(v.badge)}</span>` : ''}</button>`);
+        const pane = h(`<div class="subpane" data-pane="${v.key}"></div>`);
+        v.build(pane);
+        tabsEl.appendChild(b);
+        panes.appendChild(pane);
+        b.onclick = () => show(v.key);
+      }
+      const show = (key) => {
+        $$('.subtab', tabsEl).forEach((x) => x.classList.toggle('active', x.dataset.view === key));
+        $$('.subpane', panes).forEach((x) => x.classList.toggle('active', x.dataset.pane === key));
+        this.grids.forEach((g) => g.renderRows(true));
+      };
+      show(views.some((v) => v.key === view) ? view : views[0].key);
+    },
+    refreshResultBar() {
+      this.results.forEach((res, i) => {
+        const bar = $(`[data-bar="${i}"]`, this.el);
+        if (bar) this.fillBar(bar, res, this.grids[i]);
+        const badge = $(`.subtab[data-view="r${i}"] .badge`, this.el);
+        if (badge) badge.textContent = fmtNum(res.rows.length) + (res.more ? '+' : '');
+      });
+    },
+    fillBar(bar, res, grid) {
+      bar.innerHTML = `<span>${fmtNum(res.rows.length)} row${res.rows.length === 1 ? '' : 's'}${res.more ? ' fetched — more available' : res.closed ? ' (cursor closed; re-run to fetch more)' : ''} · ${res.columns.length} column${res.columns.length === 1 ? '' : 's'} · ${fmtMs(res.ms ?? 0)}</span>
+        ${res.more ? '<button data-more>Fetch more</button><button data-all>Fetch all</button>' : ''}
+        <span class="grow"></span>
+        <button data-copy title="Copy as tab-separated text (paste into a spreadsheet)">Copy</button>
+        <button data-x="csv">CSV</button><button data-x="json">JSON</button><button data-x="sql" title="INSERT statements">SQL</button>
+        <button data-totable title="Save the fetched rows as a new table">Save as table…</button>`;
+      bar.querySelector('[data-more]')?.addEventListener('click', () => this.fetchMore(res));
+      bar.querySelector('[data-all]')?.addEventListener('click', () => this.fetchMore(res, true));
+      bar.querySelector('[data-copy]').onclick = () => {
+        navigator.clipboard?.writeText(exportRows('tsv', res.columns, grid.viewRows()));
+        toast('Copied ' + fmtNum(res.rows.length) + ' rows');
+      };
+      bar.querySelectorAll('[data-x]').forEach(
+        (b) =>
+          (b.onclick = () => {
+            const f = b.dataset.x;
+            download(`result.${f}`, exportRows(f, res.columns, grid.viewRows(), 'result'), f === 'json' ? 'application/json' : f === 'csv' ? 'text/csv' : 'text/plain');
+          }),
+      );
+      bar.querySelector('[data-totable]').onclick = () => saveResultAsTable(res, grid);
+    },
+    dispose() {
+      this.abort?.abort();
+    },
+  };
+  return tab;
+}
+
+function coerce(v, t) {
+  if (t === 'null') return null;
+  if (t === 'text') return v;
+  if (t === 'integer') return /^-?\d+$/.test(v.trim()) && !Number.isSafeInteger(Number(v)) ? BigInt(v.trim()) : Math.trunc(Number(v));
+  if (t === 'real') return Number(v);
+  if (v === '') return null;
+  if (/^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(v.trim())) {
+    const n = Number(v);
+    if (/^-?\d+$/.test(v.trim()) && !Number.isSafeInteger(n)) return BigInt(v.trim());
+    return n;
+  }
+  return v;
+}
+
+function planTree(rows, cols) {
+  const id = cols.indexOf('id');
+  const parent = cols.indexOf('parent');
+  const detail = cols.indexOf('detail');
+  const children = new Map();
+  for (const r of rows) {
+    const p = r[parent];
+    if (!children.has(p)) children.set(p, []);
+    children.get(p).push(r);
+  }
+  const ids = new Set(rows.map((r) => r[id]));
+  const roots = rows.filter((r) => !ids.has(r[parent]));
+  let out = 'QUERY PLAN\n';
+  const walk = (r, prefix, last) => {
+    out += `${prefix}${last ? '└── ' : '├── '}${r[detail]}\n`;
+    const kids = children.get(r[id]) ?? [];
+    kids.forEach((k, i) => walk(k, prefix + (last ? '    ' : '│   '), i === kids.length - 1));
+  };
+  roots.forEach((r, i) => walk(r, '', i === roots.length - 1));
+  return out;
+}
+
+async function saveResultAsTable(res, grid) {
+  const name = await modal({
+    title: 'Save result as table',
+    body: `<p>Creates a table from the ${fmtNum(res.rows.length)} fetched rows (column types are inferred).</p><label class="field"><span>Table name</span><input type="text" name="n" value="result_${Date.now().toString(36).slice(-4)}"></label>`,
+    buttons: [{ label: 'Cancel', value: null }, { label: 'Create', primary: true, value: (f) => f.n.value.trim() }],
+  });
+  if (!name) return;
+  try {
+    const cols = res.columns.map((c, i) => (res.columns.indexOf(c) !== i ? `${c}_${i + 1}` : c));
+    const data = grid.viewRows().map((r) => Object.fromEntries(cols.map((c, i) => [c, typeof r[i] === 'bigint' ? r[i].toString() : r[i] instanceof Uint8Array ? null : r[i]])));
+    const r = await write((db) => db.importJSON(name, JSON.stringify(data), { create: true }));
+    toast(`Created ${name} with ${fmtNum(r.rows)} rows`, 'ok');
+    await refreshSchema();
+  } catch (e) {
+    toast(errText(e), 'err');
+  }
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...a) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...a), ms);
+  };
+}
+
+// ================================================================ table viewer tab
+
+function openTableTab(name) {
+  const existing = app.tabs.find((t) => t.kind === 'table' && t.objectName === name);
+  if (existing) return activateTab(existing);
+  addTab(tableTab(name));
+}
+
+function tableTab(name) {
+  const tab = {
+    kind: 'table',
+    objectName: name,
+    title: name,
+    icon: '▦',
+    where: '',
+    sort: null,
+    limit: prefs.get('pageSize', 200),
+    offset: 0,
+    total: null,
+    rows: [],
+    columns: [],
+    view: 'data',
+    init() {
+      const cols = app.schema.tables.get(name);
+      this.icon = OBJECT_KINDS[cols?.type]?.ico ?? '▦';
+      this.kindName = cols?.kind ?? 'table';
+      this.tooltip = `${name} (${(cols?.type ?? 'table').toLowerCase()})`;
+      this.el.innerHTML = `
+        <div class="toolbar">
+          <button data-refresh title="Reload (F5)">↻</button>
+          <input type="text" class="filter-input" data-where placeholder="WHERE …   e.g. price > 10 AND name LIKE 'a%'" aria-label="Filter (SQL WHERE clause)">
+          <button data-apply>Filter</button>
+          <span class="sep"></span>
+          <div class="pager"><button data-first title="First page">⏮</button><button data-prev title="Previous page">◀</button><span data-range>—</span><button data-next title="Next page">▶</button><button data-last title="Last page">⏭</button></div>
+          <select data-limit title="Rows per page">${[50, 100, 200, 500, 1000, 5000].map((n) => `<option ${n === this.limit ? 'selected' : ''}>${n}</option>`).join('')}</select>
+          <span class="sep"></span>
+          <span data-edit-tools></span>
+          <span class="grow"></span>
+          <button class="ghost" data-sql title="Open this view's query in a query tab">SQL</button>
+        </div>
+        <div class="results" style="flex:1">
+          <div class="subtabs"></div>
+          <div class="subpanes"></div>
+        </div>`;
+      const el = this.el;
+      $('[data-refresh]', el).onclick = () => this.load();
+      $('[data-apply]', el).onclick = () => {
+        this.where = $('[data-where]', el).value.trim();
+        this.offset = 0;
+        this.load(true);
+      };
+      $('[data-where]', el).addEventListener('keydown', (e) => e.key === 'Enter' && $('[data-apply]', el).click());
+      $('[data-first]', el).onclick = () => this.page(0);
+      $('[data-prev]', el).onclick = () => this.page(this.offset - this.limit);
+      $('[data-next]', el).onclick = () => this.page(this.offset + this.limit);
+      $('[data-last]', el).onclick = () => this.total !== null && this.page(Math.max(0, Math.floor((this.total - 1) / this.limit) * this.limit));
+      $('[data-limit]', el).onchange = (e) => {
+        this.limit = Number(e.target.value);
+        prefs.set('pageSize', this.limit);
+        this.offset = 0;
+        this.load();
+      };
+      $('[data-sql]', el).onclick = () => newQueryTab({ sql: this.selectSql(true) + ';\n' });
+      this.buildViews();
+      this.load(true);
+    },
+    onShow() {
+      requestAnimationFrame(() => this.grid?.renderRows(true));
+    },
+    onSchema() {
+      if (!app.schema.tables.has(name)) {
+        closeTab(this, true);
+        return;
+      }
+      if (this.view !== 'data') this.showView(this.view);
+    },
+    page(offset) {
+      this.offset = Math.max(0, offset);
+      if (this.total !== null && this.offset >= this.total) this.offset = Math.max(0, this.total - this.limit);
+      this.load();
+    },
+    pkCols() {
+      return (app.schema.tables.get(name) ?? []).filter((c) => c.pk).map((c) => c.name);
+    },
+    editable() {
+      return this.kindName === 'table' && this.pkCols().length > 0;
+    },
+    selectSql(withPaging = false) {
+      let sql = `SELECT * FROM ${quoteIdent(name)}`;
+      if (this.where) sql += ` WHERE ${this.where}`;
+      if (this.sort) sql += ` ORDER BY ${quoteIdent(this.sort.col)} ${this.sort.dir.toUpperCase()}`;
+      if (withPaging) sql += ` LIMIT ${this.limit} OFFSET ${this.offset}`;
+      return sql;
+    },
+    async load(recount = false) {
+      if (!app.db) return;
+      const t0 = now();
+      const sql = this.selectSql() + ' LIMIT ? OFFSET ?';
+      try {
+        const r = await app.db.query(sql, [this.limit, this.offset], { rowMode: 'array' });
+        const meta = app.schema.tables.get(name) ?? [];
+        this.columns = r.columns.map((c) => {
+          const m = meta.find((x) => x.name === c);
+          return { name: c, type: m?.type, pk: m?.pk };
+        });
+        this.rows = r;
+        const ms = now() - t0;
+        if ((recount || this.total === null) && this.kindName !== 'external') {
+          try {
+            const c = await app.db.query(`SELECT count(*) FROM ${quoteIdent(name)}${this.where ? ` WHERE ${this.where}` : ''}`, [], { rowMode: 'array' });
+            this.total = Number(c[0][0]);
+          } catch {
+            this.total = null;
+          }
+        } else if (this.kindName === 'external') this.total = r.length < this.limit ? this.offset + r.length : null;
+        const colIdx = this.sort ? this.columns.findIndex((c) => c.name === this.sort.col) : -1;
+        this.grid.setData(this.columns, this.rows, { serverSort: colIdx >= 0 ? { col: colIdx, dir: this.sort.dir } : null });
+        this.updatePager();
+        status(`${name}: rows ${fmtNum(this.offset + (r.length ? 1 : 0))}–${fmtNum(this.offset + r.length)}${this.total !== null ? ' of ' + fmtNum(this.total) : ''} in ${fmtMs(ms)}`);
+        this.renderEditTools();
+      } catch (e) {
+        this.grid.setData([], []);
+        this.grid.empty.textContent = errText(e);
+        this.grid.empty.style.display = '';
+        status(errText(e), 'err');
+      }
+    },
+    updatePager() {
+      const n = this.rows.length;
+      const range = n ? `${fmtNum(this.offset + 1)}–${fmtNum(this.offset + n)}` : '0';
+      $('[data-range]', this.el).textContent = this.total !== null ? `${range} of ${fmtNum(this.total)}` : range;
+      $('[data-prev]', this.el).disabled = $('[data-first]', this.el).disabled = this.offset === 0;
+      const atEnd = this.total !== null ? this.offset + n >= this.total : n < this.limit;
+      $('[data-next]', this.el).disabled = atEnd;
+      $('[data-last]', this.el).disabled = atEnd || this.total === null;
+    },
+    renderEditTools() {
+      const box = $('[data-edit-tools]', this.el);
+      if (!this.editable()) {
+        box.innerHTML = this.kindName === 'table' ? '<span class="hint" title="Rows can be edited in tables with a primary key">read-only (no primary key)</span>' : `<span class="hint">read-only ${esc(this.kindName === 'external' ? 'external table' : this.kindName)}</span>`;
+        if (this.kindName === 'matview') {
+          box.insertAdjacentHTML('beforeend', ' <button data-refresh-mv>Refresh view</button>');
+          $('[data-refresh-mv]', box).onclick = async () => {
+            await runAdHoc(`REFRESH MATERIALIZED VIEW ${quoteIdent(name)}`);
+            this.load(true);
+          };
+        }
+        return;
+      }
+      box.innerHTML = `<button data-add title="Insert a row">＋ Row</button> <button data-del title="Delete the selected row">− Row</button> <span class="hint">double-click a cell to edit</span>`;
+      $('[data-add]', box).onclick = () => this.insertRow();
+      $('[data-del]', box).onclick = () => this.deleteRow();
+    },
+    keyOf(row) {
+      const pk = this.pkCols();
+      return { where: pk.map((c) => `${quoteIdent(c)} = ?`).join(' AND '), params: pk.map((c) => row[this.columns.findIndex((x) => x.name === c)]) };
+    },
+    async editCell(r, c, value) {
+      const col = this.columns[c];
+      const row = this.rows[r];
+      const v = value === null ? null : coerceForType(value, col.type);
+      const k = this.keyOf(row);
+      try {
+        const sql = `UPDATE ${quoteIdent(name)} SET ${quoteIdent(col.name)} = ? WHERE ${k.where}`;
+        const res = await write((db) => db.exec(sql, [v, ...k.params]));
+        addHistory({ sql: `${sql}  -- ${JSON.stringify([v, ...k.params], (_, x) => (typeof x === 'bigint' ? x.toString() : x))}`, db: app.dbName, at: Date.now() });
+        if (res.changes !== 1) toast(`${res.changes} rows changed`, 'err');
+        // Re-read the row to show stored (converted) values.
+        const k2 = col.pk ? { where: k.where, params: this.pkCols().map((p) => (p === col.name ? v : k.params[this.pkCols().indexOf(p)])) } : k;
+        const fresh = await app.db.query(`SELECT * FROM ${quoteIdent(name)} WHERE ${k2.where}`, k2.params, { rowMode: 'array' });
+        if (fresh[0]) this.rows[r] = fresh[0];
+        status(`Updated ${name}.${col.name}`);
+      } catch (e) {
+        toast(errText(e), 'err');
+        throw e;
+      }
+    },
+    async deleteRow() {
+      const r = this.grid.selectedSourceRow();
+      if (r < 0) return toast('Select a row first');
+      const k = this.keyOf(this.rows[r]);
+      if (!(await confirmBox('Delete row', `Delete the row where ${esc(this.pkCols().map((c, i) => `${c} = ${formatValue(k.params[i])}`).join(', '))}?`, 'Delete', true))) return;
+      try {
+        await write((db) => db.exec(`DELETE FROM ${quoteIdent(name)} WHERE ${k.where}`, k.params));
+        this.load(true);
+      } catch (e) {
+        toast(errText(e), 'err');
+      }
+    },
+    async insertRow() {
+      const meta = app.schema.tables.get(name) ?? [];
+      const body = `<p>Leave a field empty to use the column default (or NULL).</p>` + meta.map((c, i) => `<label class="field"><span>${esc(c.name)} <span class="mono" style="color:var(--faint)">${esc(c.type ?? '')}${c.pk ? ' · primary key' : ''}${c.nullable ? '' : ' · not null'}</span></span><input type="text" name="c${i}"></label>`).join('');
+      const vals = await modal({
+        title: `Insert into ${name}`,
+        body,
+        buttons: [{ label: 'Cancel', value: null }, { label: 'Insert', primary: true, value: (f) => meta.map((c, i) => f[`c${i}`].value) }],
+      });
+      if (!vals) return;
+      const cols = [];
+      const params = [];
+      meta.forEach((c, i) => {
+        if (vals[i] === '') return;
+        cols.push(quoteIdent(c.name));
+        params.push(vals[i].toUpperCase() === 'NULL' ? null : coerceForType(vals[i], c.type));
+      });
+      try {
+        const sql = cols.length ? `INSERT INTO ${quoteIdent(name)} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})` : `INSERT INTO ${quoteIdent(name)} DEFAULT VALUES`;
+        await write((db) => db.exec(sql, params));
+        toast('Row inserted', 'ok');
+        this.load(true);
+      } catch (e) {
+        toast(errText(e), 'err');
+      }
+    },
+    buildViews() {
+      const views = [
+        ['data', 'Data'],
+        ['columns', 'Columns'],
+        ['indexes', 'Indexes'],
+        ['constraints', 'Constraints'],
+        ['ddl', 'DDL'],
+      ];
+      if (this.kindName === 'external') views.splice(1, 0, ['source', 'Source']);
+      if (this.kindName === 'matview') views.splice(1, 0, ['refresh', 'Refresh']);
+      const tabsEl = $('.subtabs', this.el);
+      const panes = $('.subpanes', this.el);
+      for (const [key, label] of views) {
+        const b = h(`<button class="subtab" data-view="${key}">${label}</button>`);
+        b.onclick = () => this.showView(key);
+        tabsEl.appendChild(b);
+        panes.appendChild(h(`<div class="subpane" data-pane="${key}"></div>`));
+      }
+      const dataPane = $('[data-pane="data"]', panes);
+      const gh = h('<div class="grid"></div>');
+      dataPane.appendChild(gh);
+      this.grid = new Grid(gh, {
+        onSort: (c, dir) => {
+          this.sort = dir ? { col: this.columns[c].name, dir } : null;
+          this.offset = 0;
+          this.load();
+        },
+        editable: (r, c) => this.editable() && !(app.schema.tables.get(name) ?? []).find((x) => x.name === this.columns[c]?.name && x.generated),
+        onEdit: (r, c, v) => this.editCell(r, c, v),
+        onOpenValue: (r, c) => showValue(this.rows[r][c], this.columns[c].name),
+      });
+      this.showView('data');
+    },
+    async showView(key) {
+      this.view = key;
+      $$('.subtab', this.el).forEach((x) => x.classList.toggle('active', x.dataset.view === key));
+      $$('.subpane', this.el).forEach((x) => x.classList.toggle('active', x.dataset.pane === key));
+      const pane = $(`[data-pane="${key}"]`, this.el);
+      if (key === 'data') return this.grid.renderRows(true);
+      pane.innerHTML = '';
+      const q = (sql, p = []) => app.db.query(sql, p, { rowMode: 'array' });
+      const gridOf = (r) => {
+        const gh = h('<div class="grid"></div>');
+        pane.appendChild(gh);
+        new Grid(gh, { emptyText: 'None' }).setData(r.columns, r);
+      };
+      try {
+        if (key === 'columns') gridOf(await q('SELECT column_name, data_type, is_nullable, column_default, collation_name, is_identity, is_generated FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position', [name]));
+        else if (key === 'indexes') gridOf(await q('SELECT index_name, seq_in_index, column_name, non_unique, collation, index_type FROM information_schema.statistics WHERE table_name = ? ORDER BY index_name, seq_in_index', [name]));
+        else if (key === 'constraints') gridOf(await q("SELECT c.constraint_name, c.constraint_type, group_concat(k.column_name, ', ') AS columns, ch.check_clause FROM information_schema.table_constraints c LEFT JOIN information_schema.key_column_usage k ON k.constraint_name = c.constraint_name AND k.table_name = c.table_name LEFT JOIN information_schema.check_constraints ch ON ch.constraint_name = c.constraint_name WHERE c.table_name = ? GROUP BY c.constraint_name, c.constraint_type, ch.check_clause", [name]));
+        else if (key === 'ddl') {
+          const pre = h('<pre class="ddl"></pre>');
+          pre.innerHTML = (await import('./sql.js')).highlight(await ddlFor(name), app.schema.names);
+          pane.appendChild(pre);
+        } else if (key === 'source') {
+          const r = await app.db.query('SELECT * FROM information_schema.external_tables WHERE table_name = ?', [name], { rowMode: 'object' });
+          const x = r[0] ?? {};
+          pane.appendChild(h(`<dl class="kv">${Object.entries(x).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v ?? '—')}</dd>`).join('')}</dl>`));
+          pane.appendChild(h(`<p class="hint" style="padding:0 16px;color:var(--muted)">External tables read their source on every query. For fast repeat reads, cache it: <code>CREATE MATERIALIZED VIEW ${esc(name)}_cache AS SELECT * FROM ${esc(quoteIdent(name))}</code></p>`));
+        } else if (key === 'refresh') {
+          const r = await app.db.query('SELECT * FROM information_schema.materialized_views WHERE table_name = ?', [name], { rowMode: 'object' });
+          const x = r[0] ?? {};
+          pane.appendChild(h(`<dl class="kv">${Object.entries(x).filter(([k]) => k !== 'view_definition').map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v ?? '—')}</dd>`).join('')}</dl>`));
+          const b = h('<div class="actions" style="padding:0 16px"><button data-r>Refresh now</button><button data-rc>Refresh concurrently</button><button data-ri title="Only when a source changed">Refresh if changed</button></div>');
+          pane.appendChild(b);
+          const go = async (sfx) => {
+            await runAdHoc(`REFRESH MATERIALIZED VIEW ${sfx === 'c' ? 'CONCURRENTLY ' : ''}${quoteIdent(name)}${sfx === 'i' ? ' IF CHANGED' : ''}`);
+            this.showView('refresh');
+            this.load(true);
+          };
+          $('[data-r]', b).onclick = () => go('');
+          $('[data-rc]', b).onclick = () => go('c');
+          $('[data-ri]', b).onclick = () => go('i');
+        }
+      } catch (e) {
+        pane.appendChild(h(`<div class="placeholder">${esc(errText(e))}</div>`));
+      }
+    },
+  };
+  return tab;
+}
+
+function coerceForType(value, type) {
+  const t = String(type ?? '').toUpperCase();
+  const s = String(value).trim();
+  if (/INT/.test(t) && /^-?\d+$/.test(s)) return Number.isSafeInteger(Number(s)) ? Number(s) : BigInt(s);
+  if (/REAL|FLOA|DOUB|NUM|DEC/.test(t) && s !== '' && !isNaN(Number(s))) return Number(s);
+  return value;
+}
+
+// ================================================================ import tab
+
+function openImportTab(section) {
+  let t = app.tabs.find((x) => x.kind === 'import');
+  if (!t) t = addTab(importTab());
+  else activateTab(t);
+  if (section) t.el.querySelector(`[data-card="${section}"]`)?.scrollIntoView({ behavior: 'smooth' });
+  return t;
+}
+
+function importTab() {
+  const tab = {
+    kind: 'import',
+    title: 'Import',
+    icon: '⇣',
+    init() {
+      this.el.innerHTML = `
+      <div class="scroll-page">
+        <div class="page-head"><h2>Import &amp; link data</h2>
+          <p><b>Import</b> copies rows into a table in this database. <b>Link</b> creates an <i>external table</i>: the data stays in the file or at the URL and is read each time you query it. Everything happens in your browser; nothing is uploaded.</p></div>
+        <div class="cards">
+          <section class="card" data-card="import">
+            <h3>Import into a table</h3>
+            <p class="sub">CSV, TSV, JSON (array of objects) or NDJSON. Column types are inferred for new tables.</p>
+            <div class="seg" data-src-seg><button class="on" data-src="file">File</button><button data-src="url">URL</button><button data-src="paste">Paste</button></div>
+            <div data-src-file><div class="drop" data-drop tabindex="0"><b>Drop a file here</b> or click to choose</div></div>
+            <div data-src-url hidden><label class="field"><span>URL (must allow CORS)</span><input type="url" data-url placeholder="https://example.com/data.csv"></label><button data-fetch>Fetch</button></div>
+            <div data-src-paste hidden><label class="field"><span>Data</span><textarea class="plain sqlbox" data-paste placeholder="id,name&#10;1,Ada&#10;2,Grace"></textarea></label><button data-use-paste>Use pasted data</button></div>
+            <div data-imp-detail hidden>
+              <div class="row">
+                <label class="field"><span>Format</span><select data-fmt><option value="csv">CSV</option><option value="tsv">TSV</option><option value="json">JSON</option><option value="ndjson">NDJSON</option></select></label>
+                <label class="field"><span>Delimiter</span><input type="text" data-delim value="," maxlength="2" style="width:60px"></label>
+                <label class="field"><span>Target</span><select data-mode><option value="new">New table</option><option value="existing">Existing table</option></select></label>
+                <label class="field"><span>Table</span><input type="text" data-table list="smaltui-tables"></label>
+              </div>
+              <div class="checks"><label><input type="checkbox" data-header checked> First row is a header</label><label><input type="checkbox" data-emptynull checked> Empty fields are NULL</label></div>
+              <div class="preview" data-preview></div>
+              <div class="actions"><button class="primary" data-do-import>Import</button><span class="note" data-imp-note></span></div>
+              <div data-imp-result></div>
+            </div>
+          </section>
+
+          <section class="card" data-card="link">
+            <h3>Link an external table</h3>
+            <p class="sub">Query a file or URL in place with <code>CREATE EXTERNAL TABLE</code>. Read-only; re-read on every query.</p>
+            <div class="seg" data-lsrc-seg><button class="on" data-lsrc="url">URL</button><button data-lsrc="file">Local file</button></div>
+            <div data-lsrc-url><label class="field"><span>Location (absolute URL, or a path relative to the connection)</span><input type="text" data-lurl placeholder="https://example.com/prices.csv"></label></div>
+            <div data-lsrc-file hidden>
+              <div class="actions" style="margin-bottom:10px"><button data-lpick>Choose file…</button><span class="note" data-lfile-note>${window.showOpenFilePicker ? 'The file stays linked across reloads (you may be asked to grant access again).' : 'This browser cannot keep file access: re-attach the file after a reload.'}</span></div>
+            </div>
+            <div class="row">
+              <label class="field"><span>Table name</span><input type="text" data-lname></label>
+              <label class="field"><span>Format</span><select data-lfmt><option value="">auto</option><option>csv</option><option>tsv</option><option>json</option><option>ndjson</option></select></label>
+              <label class="field"><span>Connection</span><select data-lconn></select></label>
+            </div>
+            <div data-newconn hidden class="card" style="margin-bottom:10px;padding:10px">
+              <div class="row">
+                <label class="field"><span>Connection name</span><input type="text" data-cname placeholder="api"></label>
+                <label class="field" style="flex:2 1 200px"><span>Base URL</span><input type="url" data-curl placeholder="https://data.example.com/v1/"></label>
+              </div>
+              <div class="row">
+                <label class="field"><span>Header (optional)</span><input type="text" data-chead placeholder="Authorization"></label>
+                <label class="field" style="flex:2 1 200px"><span>Value</span><input type="text" data-cval placeholder="Bearer …" autocomplete="off"></label>
+              </div>
+              <p class="sub" style="margin:0">Header values are kept in this tab's memory only — never in SQL or the database — and are sent only to URLs under the base URL.</p>
+            </div>
+            <div class="row">
+              <label class="field"><span>Delimiter</span><input type="text" data-ldelim placeholder="," maxlength="2"></label>
+              <label class="field"><span>NULL text</span><input type="text" data-lnull placeholder="e.g. NA"></label>
+              <label class="field"><span>Skip rows</span><input type="number" data-lskip min="0" placeholder="0"></label>
+            </div>
+            <div class="checks"><label><input type="checkbox" data-lheader checked> Header row</label><label><input type="checkbox" data-lcache> Also cache locally as a materialized view</label><label data-lcache-every hidden>refresh every <input type="number" data-levery min="0" placeholder="seconds" style="width:90px"></label></div>
+            <label class="field"><span>SQL to run (you can edit it)</span><textarea class="plain sqlbox" data-lsql spellcheck="false"></textarea></label>
+            <div class="actions"><button data-ltest>Preview</button><button class="primary" data-lcreate>Create</button><button class="ghost" data-ltoeditor>Open in editor</button></div>
+            <div class="preview" data-lpreview hidden></div>
+            <div data-lresult></div>
+          </section>
+
+          <section class="card" data-card="env">
+            <h3>Environments</h3>
+            <p class="sub">An environment is a JSON manifest that builds a database (schema, data, linked sources and saved queries). Serve one next to this page and share <code>?env=path/to/env.json</code>.</p>
+            <div data-env-list></div>
+            <label class="field"><span>Manifest URL</span><input type="text" data-env-url placeholder="envs/demo/env.json"></label>
+            <div class="actions"><button class="primary" data-env-load>Load</button><button data-env-file>Load from file…</button><button data-env-export>Export this database…</button></div>
+            <div data-env-result></div>
+          </section>
+        </div>
+        <datalist id="smaltui-tables"></datalist>
+      </div>`;
+      this.wireImport();
+      this.wireLink();
+      this.wireEnv();
+      this.onSchema();
+    },
+    onSchema() {
+      const dl = $('#smaltui-tables', this.el);
+      dl.innerHTML = [...app.schema.tables.entries()].filter(([, c]) => c.kind === 'table').map(([n]) => `<option value="${esc(n)}">`).join('');
+      const sel = $('[data-lconn]', this.el);
+      const cur = sel.value;
+      sel.innerHTML = `<option value="">none</option>${(app.schema.connections ?? []).map((c) => `<option value="${esc(c.connection_name)}">${esc(c.connection_name)}</option>`).join('')}<option value="__new">new connection…</option>`;
+      if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+    },
+    onDatabase() {
+      this.onSchema();
+    },
+    // -------------------------------------------------- import
+    wireImport() {
+      const el = this.el;
+      const seg = $('[data-src-seg]', el);
+      seg.onclick = (e) => {
+        const b = e.target.closest('[data-src]');
+        if (!b) return;
+        $$('button', seg).forEach((x) => x.classList.toggle('on', x === b));
+        for (const k of ['file', 'url', 'paste']) $(`[data-src-${k}]`, el).hidden = k !== b.dataset.src;
+      };
+      const drop = $('[data-drop]', el);
+      drop.onclick = async () => {
+        const p = await pickLocalFile();
+        if (p) this.setImportSource(p.file, p.file.name);
+      };
+      drop.onkeydown = (e) => (e.key === 'Enter' || e.key === ' ') && drop.click();
+      drop.ondragover = (e) => {
+        e.preventDefault();
+        drop.classList.add('over');
+      };
+      drop.ondragleave = () => drop.classList.remove('over');
+      drop.ondrop = (e) => {
+        e.preventDefault();
+        drop.classList.remove('over');
+        const f = e.dataTransfer.files[0];
+        if (f) this.setImportSource(f, f.name);
+      };
+      $('[data-fetch]', el).onclick = async () => {
+        const url = $('[data-url]', el).value.trim();
+        if (!url) return;
+        try {
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          this.setImportSource(await r.blob(), url);
+        } catch (e) {
+          this.importResult(`Could not fetch ${url}: ${e.message}. The server must allow cross-origin requests (CORS).`, true);
+        }
+      };
+      $('[data-use-paste]', el).onclick = () => {
+        const text = $('[data-paste]', el).value;
+        if (!text.trim()) return;
+        const fmt = /^\s*\[/.test(text) ? 'json' : /^\s*\{/.test(text) ? 'ndjson' : text.split('\n')[0].includes('\t') ? 'tsv' : 'csv';
+        this.setImportSource(new Blob([text]), `pasted.${fmt}`);
+      };
+      const reprev = () => this.previewImport();
+      $('[data-fmt]', el).onchange = () => {
+        $('[data-delim]', el).value = $('[data-fmt]', el).value === 'tsv' ? '\\t' : ',';
+        reprev();
+      };
+      $('[data-delim]', el).onchange = reprev;
+      $('[data-header]', el).onchange = reprev;
+      $('[data-mode]', el).onchange = () => {
+        const existing = $('[data-mode]', el).value === 'existing';
+        $('[data-table]', el).placeholder = existing ? 'choose a table' : '';
+      };
+      $('[data-do-import]', el).onclick = () => this.doImport();
+      this.previewGrid = new Grid($('[data-preview]', el).appendChild(h('<div class="grid"></div>')), { emptyText: 'Preview appears here' });
+    },
+    setImportSource(blob, label) {
+      const el = this.el;
+      this.source = { blob, label };
+      $('[data-imp-detail]', el).hidden = false;
+      const fmt = formatFromName(label);
+      $('[data-fmt]', el).value = fmt;
+      $('[data-delim]', el).value = fmt === 'tsv' ? '\\t' : ',';
+      const tname = tableNameFrom(label);
+      $('[data-table]', el).value = tname;
+      $('[data-mode]', el).value = app.schema.tables.has(tname) ? 'existing' : 'new';
+      $('[data-imp-note]', el).textContent = `${label} · ${fmtBytes(blob.size)}`;
+      $('[data-imp-result]', el).innerHTML = '';
+      $('[data-drop]', el).innerHTML = `<b>${esc(label.split('/').pop())}</b> (${fmtBytes(blob.size)}) — drop or click to replace`;
+      this.previewImport();
+    },
+    readerArgs() {
+      const el = this.el;
+      const fmt = $('[data-fmt]', el).value;
+      const args = [];
+      if (fmt === 'csv' || fmt === 'tsv') {
+        const d = $('[data-delim]', el).value.replace('\\t', '\t');
+        if (d && d !== (fmt === 'tsv' ? '\t' : ',')) args.push(`delimiter => ${quoteLiteral(d)}`);
+        args.push(`header => ${$('[data-header]', el).checked}`);
+      } else args.push(`format => ${quoteLiteral(fmt)}`);
+      return { fmt, args };
+    },
+    async previewImport() {
+      if (!this.source || !app.db) return;
+      const { fmt, args } = this.readerArgs();
+      const fn = fmt === 'json' || fmt === 'ndjson' ? 'read_json' : 'read_csv';
+      try {
+        // Small files are previewed whole; big ones from their first 256 KB (enough for 100 rows).
+        let blob = this.source.blob;
+        if (blob.size > 262144 && fmt !== 'json') {
+          const text = await blob.slice(0, 262144).text();
+          blob = new Blob([text.slice(0, text.lastIndexOf('\n') + 1)]);
+        }
+        await app.db.registerFile('__preview', blob);
+        const r = await app.db.query(`SELECT * FROM ${fn}('file:__preview'${args.length ? ', ' + args.join(', ') : ''}) LIMIT 100`, [], { rowMode: 'array' });
+        const types = r.columns.map((_, i) => {
+          const seen = new Set(r.map((row) => (row[i] === null ? null : typeof row[i] === 'number' ? (Number.isInteger(row[i]) ? 'INTEGER' : 'REAL') : typeof row[i] === 'bigint' ? 'INTEGER' : 'TEXT')));
+          seen.delete(null);
+          return seen.size === 1 ? [...seen][0] : seen.has('TEXT') ? 'TEXT' : seen.size ? 'REAL' : '';
+        });
+        this.previewGrid.setData(r.columns.map((c, i) => ({ name: c, type: types[i] })), r);
+        $('[data-imp-note]', this.el).textContent = `${this.source.label.split('/').pop()} · ${fmtBytes(this.source.blob.size)} · ${r.columns.length} columns · preview of first ${r.length} rows`;
+      } catch (e) {
+        this.previewGrid.setData([], []);
+        this.previewGrid.empty.textContent = errText(e);
+        this.previewGrid.empty.style.display = '';
+      } finally {
+        app.db.registerFile('__preview', null).catch(() => {});
+      }
+    },
+    importResult(text, err = false) {
+      $('[data-imp-result]', this.el).innerHTML = `<div class="${err ? 'inline-err' : 'inline-ok'}">${esc(text)}</div>`;
+    },
+    async doImport() {
+      const el = this.el;
+      const table = $('[data-table]', el).value.trim();
+      if (!table) return this.importResult('Enter a table name', true);
+      const mode = $('[data-mode]', el).value;
+      const exists = app.schema.tables.has(table);
+      if (mode === 'new' && exists) return this.importResult(`Table ${table} already exists — choose “Existing table” to append to it, or another name.`, true);
+      if (mode === 'existing' && !exists) return this.importResult(`There is no table named ${table}.`, true);
+      const fmt = $('[data-fmt]', el).value;
+      const t0 = now();
+      const btn = $('[data-do-import]', el);
+      btn.disabled = true;
+      try {
+        let r;
+        if (fmt === 'json' || fmt === 'ndjson') r = await write((db) => db.importJSON(table, this.source.blob, { create: mode === 'new' }));
+        else {
+          const delimiter = $('[data-delim]', el).value.replace('\\t', '\t') || (fmt === 'tsv' ? '\t' : ',');
+          r = await write((db) => db.importCSV(table, this.source.blob, { create: mode === 'new', header: $('[data-header]', el).checked, delimiter, emptyAsNull: $('[data-emptynull]', el).checked }));
+        }
+        this.importResult(`Imported ${fmtNum(r.rows)} rows into ${table} in ${fmtMs(now() - t0)}.`);
+        addHistory({ sql: `-- import ${this.source.label} → ${table} (${r.rows} rows)`, db: app.dbName, at: Date.now() });
+        await refreshSchema();
+        const b = h(`<button style="margin-top:8px">Open ${esc(table)}</button>`);
+        b.onclick = () => openTableTab(table);
+        $('[data-imp-result]', el).appendChild(b);
+      } catch (e) {
+        this.importResult(errText(e), true);
+      } finally {
+        btn.disabled = false;
+      }
+    },
+    // -------------------------------------------------- link
+    wireLink() {
+      const el = this.el;
+      const seg = $('[data-lsrc-seg]', el);
+      this.lsrc = 'url';
+      seg.onclick = (e) => {
+        const b = e.target.closest('[data-lsrc]');
+        if (!b) return;
+        this.lsrc = b.dataset.lsrc;
+        $$('button', seg).forEach((x) => x.classList.toggle('on', x === b));
+        $('[data-lsrc-url]', el).hidden = this.lsrc !== 'url';
+        $('[data-lsrc-file]', el).hidden = this.lsrc !== 'file';
+        this.updateLinkSql();
+      };
+      $('[data-lpick]', el).onclick = async () => {
+        const p = await pickLocalFile();
+        if (!p) return;
+        this.lfile = p;
+        const name = tableNameFrom(p.file.name);
+        let fname = p.file.name.replace(/[^\w.-]+/g, '_');
+        $('[data-lfile-note]', el).textContent = `${p.file.name} (${fmtBytes(p.file.size)}) → file:${fname}`;
+        this.lfileName = fname;
+        if (!$('[data-lname]', el).value) $('[data-lname]', el).value = name;
+        this.updateLinkSql();
+      };
+      $('[data-lurl]', el).addEventListener('input', () => {
+        const v = $('[data-lurl]', el).value.trim();
+        if (v && !this.lnameTouched) $('[data-lname]', el).value = tableNameFrom(v);
+        this.updateLinkSql();
+      });
+      $('[data-lname]', el).addEventListener('input', () => {
+        this.lnameTouched = true;
+        this.updateLinkSql();
+      });
+      $('[data-lconn]', el).onchange = () => {
+        $('[data-newconn]', el).hidden = $('[data-lconn]', el).value !== '__new';
+        this.updateLinkSql();
+      };
+      for (const sel of ['[data-lfmt]', '[data-ldelim]', '[data-lnull]', '[data-lskip]', '[data-lheader]', '[data-lcache]', '[data-levery]', '[data-cname]', '[data-curl]'])
+        $(sel, el).addEventListener('input', () => {
+          $('[data-lcache-every]', el).hidden = !$('[data-lcache]', el).checked;
+          this.updateLinkSql();
+        });
+      $('[data-lsql]', el).addEventListener('input', () => (this.lsqlTouched = true));
+      $('[data-lcreate]', el).onclick = () => this.createLink();
+      $('[data-ltest]', el).onclick = () => this.previewLink();
+      $('[data-ltoeditor]', el).onclick = () => newQueryTab({ sql: $('[data-lsql]', el).value + '\n' });
+      this.updateLinkSql();
+    },
+    linkSpec() {
+      const el = this.el;
+      const val = (s) => $(s, el).value.trim();
+      const table = val('[data-lname]') || 'linked';
+      let location = this.lsrc === 'file' ? (this.lfileName ? `file:${this.lfileName}` : 'file:…') : val('[data-lurl]');
+      let connection = val('[data-lconn]');
+      let connSql = '';
+      if (connection === '__new') {
+        connection = val('[data-cname]') || 'api';
+        const credName = val('[data-chead]') ? `${connection}_credentials` : '';
+        connSql = `CREATE CONNECTION ${quoteIdent(connection)} WITH (url = ${quoteLiteral(val('[data-curl]'))}${credName ? `, credentials = ${quoteLiteral(credName)}` : ''});\n`;
+      }
+      const options = {};
+      if (!$('[data-lheader]', el).checked) options.header = false;
+      if (val('[data-ldelim]')) options.delimiter = val('[data-ldelim]').replace('\\t', '\t');
+      if (val('[data-lnull]')) options.null = val('[data-lnull]');
+      if (val('[data-lskip]')) options.skip = Number(val('[data-lskip]'));
+      const format = val('[data-lfmt]') || (/\.(csv|tsv|json|ndjson|jsonl)(\?|#|$)/i.test(location) ? undefined : 'csv');
+      let sql = connSql + externalTableSql({ table, location, format, options, connection: connection || undefined }) + ';';
+      if ($('[data-lcache]', el).checked) {
+        const every = Number(val('[data-levery]'));
+        sql += `\nCREATE MATERIALIZED VIEW ${quoteIdent(table + '_cache')}${every > 0 ? ` WITH (refresh_every = ${every})` : ''}\n  AS SELECT * FROM ${quoteIdent(table)};`;
+      }
+      return { table, location, sql, connection, format, options };
+    },
+    updateLinkSql() {
+      if (this.lsqlTouched) return;
+      $('[data-lsql]', this.el).value = this.linkSpec().sql;
+    },
+    async prepareLink() {
+      const el = this.el;
+      if (this.lsrc === 'file') {
+        if (!this.lfile) throw new Error('Choose a file first');
+        await linkFile(this.lfileName, this.lfile.handle ?? this.lfile.file, this.lfile.handle);
+      }
+      if ($('[data-lconn]', el).value === '__new' && $('[data-chead]', el).value.trim()) {
+        const connection = $('[data-cname]', el).value.trim() || 'api';
+        await app.db.registerCredentials(`${connection}_credentials`, { endpoint: $('[data-curl]', el).value.trim(), headers: { [$('[data-chead]', el).value.trim()]: $('[data-cval]', el).value } });
+      }
+    },
+    async previewLink() {
+      const el = this.el;
+      const res = $('[data-lresult]', el);
+      res.innerHTML = '';
+      const box = $('[data-lpreview]', el);
+      box.hidden = false;
+      box.innerHTML = '';
+      const g = new Grid(box.appendChild(h('<div class="grid"></div>')), { emptyText: 'Loading…' });
+      try {
+        await this.prepareLink();
+        const spec = this.linkSpec();
+        let loc = spec.location;
+        if (spec.connection && !/^[a-z]+:/i.test(loc)) {
+          const c = app.schema.connections?.find((x) => x.connection_name === spec.connection);
+          const base = c?.url ?? $('[data-curl]', el).value.trim();
+          loc = new URL(loc, base).href;
+        }
+        const fmt = spec.format ?? formatFromName(loc);
+        const fn = fmt === 'json' || fmt === 'ndjson' ? 'read_json' : 'read_csv';
+        const args = Object.entries({ ...spec.options, ...(fn === 'read_json' ? { format: fmt } : fmt === 'tsv' && !spec.options.delimiter ? { delimiter: '\t' } : {}) }).map(([k, v]) => `${k} => ${typeof v === 'string' ? quoteLiteral(v) : v}`);
+        const r = await app.db.query(`SELECT * FROM ${fn}(${quoteLiteral(loc)}${args.length ? ', ' + args.join(', ') : ''}) LIMIT 100`, [], { rowMode: 'array' });
+        g.setData(r.columns, r);
+      } catch (e) {
+        g.setData([], []);
+        g.empty.textContent = errText(e);
+        g.empty.style.display = '';
+      }
+    },
+    async createLink() {
+      const el = this.el;
+      const res = $('[data-lresult]', el);
+      const spec = this.linkSpec();
+      try {
+        await this.prepareLink();
+        const sql = $('[data-lsql]', el).value;
+        const t0 = now();
+        await write((db) => db.exec(sql));
+        addHistory({ sql, db: app.dbName, at: Date.now(), ms: now() - t0 });
+        await refreshSchema();
+        res.innerHTML = `<div class="inline-ok">Created ${esc(spec.table)} in ${fmtMs(now() - t0)}.</div>`;
+        const b = h(`<button style="margin-top:8px">Open ${esc(spec.table)}</button>`);
+        b.onclick = () => openTableTab(spec.table);
+        res.appendChild(b);
+        this.lsqlTouched = false;
+      } catch (e) {
+        res.innerHTML = `<div class="inline-err">${esc(errText(e))}</div>`;
+      }
+    },
+    // -------------------------------------------------- environments
+    wireEnv() {
+      const el = this.el;
+      const out = $('[data-env-result]', el);
+      const say = (t, err) => (out.innerHTML = `<div class="${err ? 'inline-err' : 'inline-ok'}">${esc(t)}</div>`);
+      $('[data-env-load]', el).onclick = async () => {
+        const url = $('[data-env-url]', el).value.trim();
+        if (!url) return;
+        try {
+          await loadEnvironment(url, { force: true });
+          say('Environment loaded.');
+        } catch (e) {
+          say(errText(e), true);
+        }
+      };
+      $('[data-env-file]', el).onclick = async () => {
+        const p = await pickLocalFile('.json');
+        if (!p) return;
+        try {
+          const m = JSON.parse(await p.file.text());
+          await loadEnvironment(null, { manifest: m, force: true });
+          say(`Loaded ${m.name ?? p.file.name}.`);
+        } catch (e) {
+          say(errText(e), true);
+        }
+      };
+      $('[data-env-export]', el).onclick = () => exportEnvironmentDialog();
+      fetch(new URL('../envs/index.json', import.meta.url))
+        .then((r) => (r.ok ? r.json() : []))
+        .then((list) => {
+          if (!list.length) return;
+          const box = $('[data-env-list]', el);
+          box.innerHTML = `<div class="db-list">${list.map((e) => `<div class="db-row"><div><div class="nm">${esc(e.name)}</div><div class="meta">${esc(e.description ?? '')}</div></div><span class="acts"><button type="button" data-env="${esc(e.path)}">Open</button></span></div>`).join('')}</div>`;
+          box.querySelectorAll('[data-env]').forEach((b) => (b.onclick = () => loadEnvironment(new URL(b.dataset.env, new URL('../envs/', import.meta.url)).href, { force: true }).catch((e) => say(errText(e), true))));
+        })
+        .catch(() => {});
+    },
+  };
+  return tab;
+}
+
+// ================================================================ environments
+
+async function loadEnvironment(url, { manifest = null, force = false } = {}) {
+  const m = manifest ?? (await fetchManifest(url));
+  const dbName = m.database?.name ?? 'env';
+  const storage = m.database?.storage === 'opfs' && opfsAvailable() ? 'opfs' : 'memory';
+  const key = manifestKey(m);
+  let fresh = true;
+  if (storage === 'opfs') {
+    const exists = (await listOpfsDatabases()).some((d) => d.name === dbName);
+    const applied = prefs.get(key, false);
+    if (exists && applied && m.init !== 'always' && !force) fresh = false;
+    else if (exists && (m.init === 'always' || force)) {
+      if (app.db && app.dbName === dbName && app.storage === 'opfs') {
+        await closeStreams();
+        await app.db.close();
+        app.db = null;
+      }
+      await deleteOpfsDatabase(dbName).catch(() => {});
+    }
+  }
+  if (storage === 'memory' && app.db && app.dbName === dbName && app.storage === 'memory') {
+    await closeStreams();
+    await app.db.close();
+    app.db = null;
+  }
+  status(`Loading environment ${m.name ?? dbName}…`);
+  await openDatabase(dbName, storage, { quiet: true });
+  if (fresh) {
+    const log = [];
+    try {
+      await applyManifest(app.db, m, (lvl, text) => {
+        log.push(text);
+        status(text);
+      });
+    } catch (e) {
+      toast(`Environment ${m.name ?? dbName}: ${errText(e)}`, 'err');
+      await refreshSchema();
+      throw e;
+    }
+    prefs.set(key, true);
+  }
+  await refreshSchema();
+  app.env = m;
+  for (const q of m.queries ?? []) {
+    if (!app.tabs.some((t) => t.kind === 'query' && t.editor?.value.trim() === q.sql.trim())) newQueryTab({ title: q.title, sql: q.sql });
+  }
+  for (const t of m.open ?? []) if (app.schema.tables.has(t)) openTableTab(t);
+  // Drop the starter tab if it is still empty.
+  for (const t of [...app.tabs]) if (t.kind === 'query' && !t.editor.value.trim() && app.tabs.length > 1) closeTab(t, true);
+  for (const t of [...app.tabs]) if (t.kind === 'welcome') closeTab(t, true);
+  status(`Environment “${m.name ?? dbName}” ready${fresh ? '' : ' (already initialised; use Load to rebuild)'}`);
+  toast(`Environment “${m.name ?? dbName}” ready`, 'ok');
+}
+
+async function exportEnvironmentDialog() {
+  if (!app.db) return;
+  const r = await modal({
+    title: 'Export database',
+    body: `<p>Save <b>${esc(app.dbName)}</b> as an environment manifest: its schema, the rows of local tables (as JSON), external tables and connections (by reference, never credentials), and your open query tabs. Serve the file with smaltui and open <code>?env=&lt;path&gt;</code> to recreate it anywhere.</p>
+      <div class="checks"><label><input type="checkbox" name="data" checked> Include table data</label><label><input type="checkbox" name="queries" checked> Include query tabs</label></div>
+      <label class="field"><span>Name</span><input type="text" name="name" value="${esc(app.dbName)}"></label>`,
+    buttons: [{ label: 'Cancel', value: null }, { label: 'SQL dump instead', value: 'sql' }, { label: 'Download manifest', primary: true, value: (f) => ({ data: f.data.checked, queries: f.queries.checked, name: f.name.value }) }],
+  });
+  if (!r) return;
+  try {
+    if (r === 'sql') return download(`${app.dbName}.sql`, await exportSqlDump(app.db), 'application/sql');
+    const queries = r.queries ? app.tabs.filter((t) => t.kind === 'query' && t.editor.value.trim()).map((t) => ({ title: t.title, sql: t.editor.value })) : [];
+    const m = await exportManifest(app.db, { name: r.name, dbName: app.dbName, includeData: r.data, queries });
+    download(`${app.dbName}.env.json`, JSON.stringify(m, null, 2), 'application/json');
+  } catch (e) {
+    toast(errText(e), 'err');
+  }
+}
+
+// ================================================================ history tab
+
+function openHistoryTab() {
+  const t = app.tabs.find((x) => x.kind === 'history');
+  if (t) {
+    activateTab(t);
+    t.render();
+    return;
+  }
+  addTab({
+    kind: 'history',
+    title: 'History',
+    icon: '⟲',
+    init() {
+      this.el.innerHTML = `<div class="toolbar"><input type="search" data-q placeholder="Search history…" style="flex:1"><label class="hint"><input type="checkbox" data-thisdb checked> this database only</label><button data-clear class="danger">Clear</button></div><div class="hist-list"></div>`;
+      $('[data-q]', this.el).oninput = () => this.render();
+      $('[data-thisdb]', this.el).onchange = () => this.render();
+      $('[data-clear]', this.el).onclick = async () => {
+        if (await confirmBox('Clear history', 'Remove all query history stored in this browser?', 'Clear', true)) {
+          clearHistory();
+          this.render();
+        }
+      };
+      this.render();
+    },
+    onShow() {
+      this.render();
+    },
+    render() {
+      const q = $('[data-q]', this.el).value.toLowerCase();
+      const only = $('[data-thisdb]', this.el).checked;
+      const items = loadHistory().filter((x) => (!only || x.db === app.dbName) && (!q || x.sql.toLowerCase().includes(q)));
+      const list = $('.hist-list', this.el);
+      list.innerHTML = items.length
+        ? items
+            .slice(0, 300)
+            .map(
+              (x, i) => `<div class="hist" data-i="${i}"><pre>${esc(x.sql)}</pre>
+              <div class="acts"><button data-ins title="Insert into the current editor">Insert</button><button data-new title="Open in a new tab">Open</button></div>
+              <div class="meta"><span>${new Date(x.at).toLocaleString()}</span><span>${esc(x.db ?? '')}</span>${x.ms !== undefined ? `<span>${fmtMs(x.ms)}</span>` : ''}${x.runs > 1 ? `<span>×${x.runs}</span>` : ''}${x.error ? `<span class="err">${esc(x.error)}</span>` : ''}</div></div>`,
+            )
+            .join('')
+        : '<div class="placeholder">No history yet.</div>';
+      list.onclick = (e) => {
+        const row = e.target.closest('.hist');
+        if (!row) return;
+        const x = items[Number(row.dataset.i)];
+        if (e.target.closest('[data-new]')) newQueryTab({ sql: x.sql + '\n' });
+        else if (e.target.closest('[data-ins]')) insertIntoEditor(x.sql);
+      };
+      list.ondblclick = (e) => {
+        const row = e.target.closest('.hist');
+        if (row) newQueryTab({ sql: items[Number(row.dataset.i)].sql + '\n' });
+      };
+    },
+  });
+}
+
+// ================================================================ welcome tab
+
+function welcomeTab() {
+  return {
+    kind: 'welcome',
+    title: 'Welcome',
+    icon: '★',
+    init() {
+      const v = app.engine?.version;
+      this.el.innerHTML = `<div class="scroll-page"><div class="welcome">
+        <h2>smaltui</h2>
+        <p class="lead">A query workbench for <a href="https://github.com/stenhoor/smaltdb" target="_blank" rel="noopener">smaltdb</a>, the SQL database that runs inside your browser. Databases live in this browser's private storage (OPFS) or in memory; nothing leaves your machine unless you link a URL.</p>
+        <div class="quick">
+          <button data-q="query"><b>⌨ New query</b><span>Write SQL with highlighting, completion and bind variables.</span></button>
+          <button data-q="import"><b>⇣ Import a file</b><span>Load CSV, TSV, JSON or NDJSON into a table.</span></button>
+          <button data-q="link"><b>⇄ Link a source</b><span>Query a file or URL in place as an external table.</span></button>
+          <button data-q="demo"><b>★ Open the demo</b><span>A sample environment with tables, a view and saved queries.</span></button>
+          <button data-q="db"><b>▤ Databases</b><span>Open, create or delete databases stored in this browser.</span></button>
+        </div>
+        <p class="lead" style="font-size:12px">Engine: ${esc(app.engine?.label ?? '—')}${v?.commit ? ` @ <code>${esc(v.commit.slice(0, 10))}</code>` : v?.version ? ` ${esc(v.version)}` : ''}. Shortcuts: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> run script · <kbd>Ctrl</kbd>+<kbd>E</kbd> explain · <kbd>Ctrl</kbd>+<kbd>Space</kbd> complete.</p>
+      </div></div>`;
+      this.el.querySelector('.quick').onclick = (e) => {
+        const b = e.target.closest('[data-q]');
+        if (!b) return;
+        const q = b.dataset.q;
+        if (q === 'query') newQueryTab();
+        else if (q === 'import') openImportTab('import');
+        else if (q === 'link') openImportTab('link');
+        else if (q === 'db') dbPicker();
+        else if (q === 'demo') loadEnvironment(new URL('../envs/demo/env.json', import.meta.url).href, { force: false }).catch((err) => toast(errText(err), 'err'));
+      };
+    },
+  };
+}
+
+// ================================================================ menus, shortcuts, init
+
+async function engineDialog() {
+  const cur = engineSpec();
+  const r = await modal({
+    title: 'Engine source',
+    body: `<p>smaltui loads the smaltdb engine from one of these. The page reloads to switch.</p>
+      <label class="field"><span>Source</span><select name="kind">
+        <option value="vendor" ${cur === 'vendor' ? 'selected' : ''}>Vendored build (./vendor/smaltdb/)</option>
+        <option value="npm" ${cur.startsWith('npm') ? 'selected' : ''}>npm via jsDelivr</option>
+        <option value="url" ${!['vendor'].includes(cur) && !cur.startsWith('npm') ? 'selected' : ''}>Custom URL (a folder with smaltdb.js and smaltdb-worker.js)</option>
+      </select></label>
+      <label class="field"><span>npm version or custom URL</span><input type="text" name="val" value="${esc(cur.startsWith('npm@') ? cur.slice(4) : cur.startsWith('npm') || cur === 'vendor' ? '' : cur)}" placeholder="latest · 0.1.0 · https://…/dist/"></label>
+      <p>Current: <code>${esc(app.engine?.label ?? cur)}</code></p>`,
+    buttons: [{ label: 'Cancel', value: null }, { label: 'Use and reload', primary: true, value: (f) => (f.kind.value === 'vendor' ? 'vendor' : f.kind.value === 'npm' ? (f.val.value.trim() ? `npm@${f.val.value.trim()}` : 'npm') : f.val.value.trim()) }],
+  });
+  if (!r) return;
+  setEngineSpec(r);
+  const url = new URL(location.href);
+  url.searchParams.delete('engine');
+  location.href = url.href;
+}
+
+function shortcutsDialog() {
+  const rows = [
+    ['Ctrl+Enter', 'Run the statement at the cursor (or the selection)'],
+    ['Ctrl+Shift+Enter / F5', 'Run the whole script'],
+    ['Ctrl+E', 'Explain the statement at the cursor'],
+    ['Esc', 'Cancel the running statement'],
+    ['Ctrl+Space', 'Complete keywords, tables and columns'],
+    ['Ctrl+/', 'Toggle line comments'],
+    ['Ctrl+Shift+F', 'Format SQL'],
+    ['Tab / Shift+Tab', 'Indent / outdent'],
+    ['Ctrl+S', 'Save the editor as a .sql file'],
+    ['Ctrl+Shift+N', 'New query tab'],
+    ['Ctrl+Shift+O', 'Open database'],
+    ['Alt+W', 'Close tab'],
+    ['Alt+← / Alt+→', 'Previous / next tab'],
+    ['Grid: arrows, PgUp/PgDn, Ctrl+C', 'Move, copy cell (Ctrl+Shift+C copies the row)'],
+    ['Grid: Enter / double-click', 'Edit cell (tables with a primary key) or view the value'],
+    ['Grid: Ctrl+Delete while editing', 'Set the cell to NULL'],
+  ];
+  modal({ title: 'Keyboard shortcuts', body: `<dl class="shortcuts">${rows.map(([k, v]) => `<dt>${k.split(' / ').map((x) => x.split('+').map((p) => `<kbd>${esc(p)}</kbd>`).join('+')).join(' / ')}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` });
+}
+
+function aboutDialog() {
+  const v = app.engine?.version ?? {};
+  modal({
+    title: 'About smaltui',
+    body: `<p>smaltui is a static, client-side workbench for <a href="https://github.com/stenhoor/smaltdb" target="_blank" rel="noopener">smaltdb</a>. Serve the folder from any static host; every visitor gets their own databases in their own browser.</p>
+      <dl class="kv" style="padding:0"><dt>Engine</dt><dd>${esc(app.engine?.label ?? '—')}</dd>
+      ${v.commit ? `<dt>smaltdb commit</dt><dd>${esc(v.commit)}</dd>` : ''}${v.version ? `<dt>smaltdb version</dt><dd>${esc(v.version)}</dd>` : ''}
+      <dt>Cross-origin isolated</dt><dd>${crossOriginIsolated ? 'yes (parallel readers, interruptible statements)' : 'no — serve with COOP/COEP headers for parallel readers'}</dd>
+      <dt>OPFS</dt><dd>${opfsAvailable() ? 'available' : 'not available'}</dd>
+      <dt>Database</dt><dd>${esc(app.dbName ?? '—')} (${esc(app.storage ?? '')}${app.db ? (app.db.isLeader ? ', owner tab' : ', shared with another tab') : ''})</dd></dl>`,
+  });
+}
+
+function toggleTheme() {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+  prefs.set('theme', root.dataset.theme);
+}
+
+function wireChrome() {
+  $('#dbPicker').onclick = () => dbPicker();
+  $('#btnNewQuery').onclick = () => newQueryTab();
+  $('#btnImport').onclick = () => openImportTab();
+  $('#btnHistory').onclick = () => openHistoryTab();
+  $('#btnMore').onclick = () => ($('#moreMenu').hidden = !$('#moreMenu').hidden);
+  $('#moreMenu').onclick = (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    $('#moreMenu').hidden = true;
+    const act = b.dataset.act;
+    if (act === 'export-env') exportEnvironmentDialog();
+    else if (act === 'export-sql') exportSqlDump(app.db).then((s) => download(`${app.dbName}.sql`, s, 'application/sql')).catch((err) => toast(errText(err), 'err'));
+    else if (act === 'load-env') openImportTab('env');
+    else if (act === 'engine') engineDialog();
+    else if (act === 'theme') toggleTheme();
+    else if (act === 'shortcuts') shortcutsDialog();
+    else if (act === 'about') aboutDialog();
+  };
+  $('.brand').onclick = () => {
+    if (matchMedia('(max-width: 760px)').matches) document.body.classList.toggle('side-open');
+  };
+  const ws = $('.workspace');
+  ws.style.setProperty('--side-w', prefs.get('sideWidth', 260) + 'px');
+  dragSplit(
+    $('#sideSplitter'),
+    (ev) => ws.style.setProperty('--side-w', Math.max(160, Math.min(560, ev.clientX)) + 'px'),
+    () => prefs.set('sideWidth', parseInt(ws.style.getPropertyValue('--side-w'))),
+  );
+  document.addEventListener('keydown', (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.shiftKey && e.key.toLowerCase() === 'n') {
+      e.preventDefault();
+      newQueryTab();
+    } else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
+      e.preventDefault();
+      dbPicker();
+    } else if (e.altKey && e.key.toLowerCase() === 'w') {
+      e.preventDefault();
+      if (app.active) closeTab(app.active);
+    } else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      const i = app.tabs.indexOf(app.active);
+      const next = app.tabs[(i + (e.key === 'ArrowRight' ? 1 : app.tabs.length - 1)) % app.tabs.length];
+      if (next) activateTab(next);
+    } else if (e.key === 'F5' && app.active?.kind === 'table') {
+      e.preventDefault();
+      app.active.load(true);
+    }
+  });
+  window.addEventListener('beforeunload', () => saveQueryTabs());
+}
+
+async function init() {
+  wireChrome();
+  wireTree();
+  const params = new URLSearchParams(location.search);
+  try {
+    app.engine = await loadEngine();
+    const v = app.engine.version;
+    $('#stEngine').textContent = `smaltdb ${v?.commit ? v.commit.slice(0, 8) : v?.version ?? ''} · ${app.engine.label}`;
+  } catch (e) {
+    $('#stEngine').textContent = 'engine failed to load';
+    $('#panes').innerHTML = `<div class="placeholder"><h3>The smaltdb engine could not be loaded</h3>${esc(e.message)}<br><br>Run <code>npm run vendor</code> to build it into <code>vendor/smaltdb/</code>, or choose another source with <code>?engine=npm</code> or <code>?engine=&lt;url&gt;</code>.</div>`;
+    return;
+  }
+  // Restore query tabs.
+  const saved = prefs.get('queryTabs', []);
+  for (const q of saved) {
+    const n = /^Query (\d+)$/.exec(q.title);
+    if (n) querySeq = Math.max(querySeq, Number(n[1]));
+  }
+  const envUrl = params.get('env');
+  try {
+    if (envUrl) {
+      for (const q of saved) addTab(queryTab(q.title, q.sql));
+      await loadEnvironment(envUrl);
+    } else {
+      const last = prefs.get('lastDb', null);
+      const name = params.get('db') ?? last?.name ?? 'scratch';
+      const storage = params.get('storage') ?? (params.get('db') ? 'opfs' : last?.storage ?? 'opfs');
+      await openDatabase(name, storage);
+      if (!saved.length) addTab(welcomeTab());
+      for (const q of saved) addTab(queryTab(q.title, q.sql));
+      if (!saved.length) newQueryTab({ sql: '-- Ctrl+Enter runs the statement under the cursor\nSELECT \'hello, smaltdb\' AS greeting, datetime(\'now\') AS now;\n' });
+      activateTab(app.tabs.find((t) => t.kind === 'welcome') ?? app.tabs[0]);
+    }
+  } catch (e) {
+    toast(errText(e), 'err');
+    status(errText(e), 'err');
+    if (!app.tabs.length) addTab(welcomeTab());
+    if (!app.db) {
+      try {
+        await openDatabase('scratch', 'memory');
+      } catch {}
+    }
+  }
+}
+
+init();

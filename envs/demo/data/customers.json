@@ -1,0 +1,482 @@
+[
+ {
+  "id": 1,
+  "name": "Sophie Hopper",
+  "country": "CA",
+  "currency": "CAD",
+  "signed_up": "2024-06-03",
+  "newsletter": true
+ },
+ {
+  "id": 2,
+  "name": "Tim Conway",
+  "country": "AU",
+  "currency": "AUD",
+  "signed_up": "2024-04-06",
+  "newsletter": true
+ },
+ {
+  "id": 3,
+  "name": "Grace Turing",
+  "country": "AU",
+  "currency": "AUD",
+  "signed_up": "2024-08-07",
+  "newsletter": false
+ },
+ {
+  "id": 4,
+  "name": "Alan Ritchie",
+  "country": "DE",
+  "currency": "EUR",
+  "signed_up": "2024-09-03",
+  "newsletter": false
+ },
+ {
+  "id": 5,
+  "name": "Ken Conway",
+  "country": "CH",
+  "currency": "CHF",
+  "signed_up": "2024-05-06",
+  "newsletter": false
+ },
+ {
+  "id": 6,
+  "name": "Grace Thompson",
+  "country": "CH",
+  "currency": "CHF",
+  "signed_up": "2025-02-10",
+  "newsletter": true
+ },
+ {
+  "id": 7,
+  "name": "Linus Liskov",
+  "country": "FR",
+  "currency": "EUR",
+  "signed_up": "2024-10-23",
+  "newsletter": false
+ },
+ {
+  "id": 8,
+  "name": "Dennis Knuth",
+  "country": "CH",
+  "currency": "CHF",
+  "signed_up": "2024-11-11",
+  "newsletter": true
+ },
+ {
+  "id": 9,
+  "name": "Tim Dijkstra",
+  "country": "CH",
+  "currency": "CHF",
+  "signed_up": "2024-07-11",
+  "newsletter": false
+ },
+ {
+  "id": 10,
+  "name": "Guido Allen",
+  "country": "DE",
+  "currency": "EUR",
+  "signed_up": "2024-03-02",
+  "newsletter": false
+ },
+ {
+  "id": 11,
+  "name": "Radia Lamarr",
+  "country": "AU",
+  "currency": "AUD",
+  "signed_up": "2025-03-13",
+  "newsletter": false
+ },
+ {
+  "id": 12,
+  "name": "Niklaus Thompson",
+  "country": "SE",
+  "currency": "SEK",
+  "signed_up": "2025-01-05",
+  "newsletter": false
+ },
+ {
+  "id": 13,
+  "name": "Lynn Wirth",
+  "country": "GB",
+  "currency": "GBP",
+  "signed_up": "2024-03-24",
+  "newsletter": false
+ },
+ {
+  "id": 14,
+  "name": "Niklaus van Rossum",
+  "country": "CA",
+  "currency": "CAD",
+  "signed_up": "2025-04-04",
+  "newsletter": false
+ },
+ {
+  "id": 15,
+  "name": "Linus Knuth",
+  "country": "DE",
+  "currency": "EUR",
+  "signed_up": "2025-06-08",
+  "newsletter": false
+ },
+ {
+  "id": 16,
+  "name": "Linus Hopper",
+  "country": "FR",
+  "currency": "EUR",
+  "signed_up": "2025-05-15",
+  "newsletter": false
+ },
+ {
+  "id": 17,
+  "name": "Radia Berners-Lee",
+  "country": "DE",
+  "currency": "EUR",
+  "signed_up": "2024-11-17",
+  "newsletter": false
+ },
+ {
+  "id": 18,
+  "name": "Alan Turing",
+  "country": "CH",
+  "currency": "CHF",
+  "signed_up": "2025-04-12",
+  "newsletter": false
+ },
+ {
+  "id": 19,
+  "name": "Grace Wirth",
+  "country": "SE",
+  "currency": "SEK",
+  "signed_up": "2024-03-07",
+  "newsletter": false
+ },
+ {
+  "id": 20,
+  "name": "Sophie Berners-Lee",
+  "country": "SE",
+  "currency": "SEK",
+  "signed_up": "2024-10-18",
+  "newsletter": true
+ },
+ {
+  "id": 21,
+  "name": "Donald van Rossum",
+  "country": "SE",
+  "currency": "SEK",
+  "signed_up": "2024-12-29",
+  "newsletter": true
+ },
+ {
+  "id": 22,
+  "name": "Niklaus Liskov",
+  "country": "NL",
+  "currency": "EUR",
+  "signed_up": "2024-08-11",
+  "newsletter": false
+ },
+ {
+  "id": 23,
+  "name": "John Turing",
+  "country": "JP",
+  "currency": "JPY",
+  "signed_up": "2025-02-04",
+  "newsletter": true
+ },
+ {
+  "id": 24,
+  "name": "Barbara Torvalds",
+  "country": "JP",
+  "currency": "JPY",
+  "signed_up": "2024-10-11",
+  "newsletter": false
+ },
+ {
+  "id": 25,
+  "name": "Tim Wilson",
+  "country": "US",
+  "currency": "USD",
+  "signed_up": "2025-03-01",
+  "newsletter": false
+ },
+ {
+  "id": 26,
+  "name": "Donald Liskov",
+  "country": "FR",
+  "currency": "EUR",
+  "signed_up": "2024-03-25",
+  "newsletter": true
+ },
+ {
+  "id": 27,
+  "name": "John Conway",
+  "country": "GB",
+  "currency": "GBP",
+  "signed_up": "2024-01-13",
+  "newsletter": true
+ },
+ {
+  "id": 28,
+  "name": "Barbara Torvalds",
+  "country": "US",
+  "currency": "USD",
+  "signed_up": "2024-01-05",
+  "newsletter": false
+ },
+ {
+  "id": 29,
+  "name": "Barbara Johnson",
+  "country": "CH",
+  "currency": "CHF",
+  "signed_up": "2024-11-22",
+  "newsletter": false
+ },
+ {
+  "id": 30,
+  "name": "Dennis Wilson",
+  "country": "NL",
+  "currency": "EUR",
+  "signed_up": "2025-04-12",
+  "newsletter": true
+ },
+ {
+  "id": 31,
+  "name": "John Wilson",
+  "country": "JP",
+  "currency": "JPY",
+  "signed_up": "2024-04-16",
+  "newsletter": true
+ },
+ {
+  "id": 32,
+  "name": "Hedy Knuth",
+  "country": "DE",
+  "currency": "EUR",
+  "signed_up": "2024-08-01",
+  "newsletter": true
+ },
+ {
+  "id": 33,
+  "name": "Edsger Lovelace",
+  "country": "CH",
+  "currency": "CHF",
+  "signed_up": "2024-02-23",
+  "newsletter": false
+ },
+ {
+  "id": 34,
+  "name": "Tim van Rossum",
+  "country": "AU",
+  "currency": "AUD",
+  "signed_up": "2024-04-13",
+  "newsletter": true
+ },
+ {
+  "id": 35,
+  "name": "Barbara Hamilton",
+  "country": "GB",
+  "currency": "GBP",
+  "signed_up": "2025-01-20",
+  "newsletter": false
+ },
+ {
+  "id": 36,
+  "name": "John Dijkstra",
+  "country": "CH",
+  "currency": "CHF",
+  "signed_up": "2025-01-07",
+  "newsletter": true
+ },
+ {
+  "id": 37,
+  "name": "John Backus",
+  "country": "SE",
+  "currency": "SEK",
+  "signed_up": "2025-04-22",
+  "newsletter": true
+ },
+ {
+  "id": 38,
+  "name": "Radia Hamilton",
+  "country": "FR",
+  "currency": "EUR",
+  "signed_up": "2024-04-14",
+  "newsletter": false
+ },
+ {
+  "id": 39,
+  "name": "Ada Allen",
+  "country": "FR",
+  "currency": "EUR",
+  "signed_up": "2025-06-12",
+  "newsletter": false
+ },
+ {
+  "id": 40,
+  "name": "Barbara Ritchie",
+  "country": "AU",
+  "currency": "AUD",
+  "signed_up": "2025-01-05",
+  "newsletter": false
+ },
+ {
+  "id": 41,
+  "name": "Alan Hamilton",
+  "country": "AU",
+  "currency": "AUD",
+  "signed_up": "2024-11-01",
+  "newsletter": false
+ },
+ {
+  "id": 42,
+  "name": "Ken Ritchie",
+  "country": "FR",
+  "currency": "EUR",
+  "signed_up": "2024-12-30",
+  "newsletter": false
+ },
+ {
+  "id": 43,
+  "name": "Ken van Rossum",
+  "country": "AU",
+  "currency": "AUD",
+  "signed_up": "2024-12-03",
+  "newsletter": false
+ },
+ {
+  "id": 44,
+  "name": "Sophie Thompson",
+  "country": "GB",
+  "currency": "GBP",
+  "signed_up": "2024-09-02",
+  "newsletter": true
+ },
+ {
+  "id": 45,
+  "name": "Ada Lovelace",
+  "country": "SE",
+  "currency": "SEK",
+  "signed_up": "2024-12-30",
+  "newsletter": false
+ },
+ {
+  "id": 46,
+  "name": "Frances van Rossum",
+  "country": "SE",
+  "currency": "SEK",
+  "signed_up": "2024-09-22",
+  "newsletter": false
+ },
+ {
+  "id": 47,
+  "name": "Tim Turing",
+  "country": "SE",
+  "currency": "SEK",
+  "signed_up": "2024-12-23",
+  "newsletter": true
+ },
+ {
+  "id": 48,
+  "name": "Frances Perlman",
+  "country": "GB",
+  "currency": "GBP",
+  "signed_up": "2025-04-26",
+  "newsletter": true
+ },
+ {
+  "id": 49,
+  "name": "John Berners-Lee",
+  "country": "CH",
+  "currency": "CHF",
+  "signed_up": "2024-01-02",
+  "newsletter": false
+ },
+ {
+  "id": 50,
+  "name": "Sophie Allen",
+  "country": "DE",
+  "currency": "EUR",
+  "signed_up": "2024-05-02",
+  "newsletter": false
+ },
+ {
+  "id": 51,
+  "name": "Radia Turing",
+  "country": "FR",
+  "currency": "EUR",
+  "signed_up": "2025-03-20",
+  "newsletter": false
+ },
+ {
+  "id": 52,
+  "name": "Sophie Turing",
+  "country": "JP",
+  "currency": "JPY",
+  "signed_up": "2025-04-19",
+  "newsletter": false
+ },
+ {
+  "id": 53,
+  "name": "Ada Liskov",
+  "country": "FR",
+  "currency": "EUR",
+  "signed_up": "2024-05-10",
+  "newsletter": false
+ },
+ {
+  "id": 54,
+  "name": "Guido van Rossum",
+  "country": "SE",
+  "currency": "SEK",
+  "signed_up": "2024-05-29",
+  "newsletter": false
+ },
+ {
+  "id": 55,
+  "name": "Dennis Ritchie",
+  "country": "CA",
+  "currency": "CAD",
+  "signed_up": "2024-06-08",
+  "newsletter": true
+ },
+ {
+  "id": 56,
+  "name": "Katherine Liskov",
+  "country": "NL",
+  "currency": "EUR",
+  "signed_up": "2024-04-15",
+  "newsletter": false
+ },
+ {
+  "id": 57,
+  "name": "Ada Hamilton",
+  "country": "GB",
+  "currency": "GBP",
+  "signed_up": "2024-08-04",
+  "newsletter": true
+ },
+ {
+  "id": 58,
+  "name": "Lynn Perlman",
+  "country": "AU",
+  "currency": "AUD",
+  "signed_up": "2024-09-03",
+  "newsletter": true
+ },
+ {
+  "id": 59,
+  "name": "Grace Berners-Lee",
+  "country": "JP",
+  "currency": "JPY",
+  "signed_up": "2024-05-14",
+  "newsletter": false
+ },
+ {
+  "id": 60,
+  "name": "Linus Johnson",
+  "country": "CH",
+  "currency": "CHF",
+  "signed_up": "2025-06-13",
+  "newsletter": true
+ }
+]

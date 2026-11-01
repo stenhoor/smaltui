@@ -1,0 +1,6 @@
+# Netlify / Cloudflare Pages: make the page cross-origin isolated so smaltdb can use parallel
+# reader workers and interrupt running statements. (GitHub Pages ignores this file; smaltui
+# still works there, just without those two features.)
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
