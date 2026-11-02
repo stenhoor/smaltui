@@ -3,6 +3,7 @@ import { loadEngine, engineSpec, setEngineSpec, opfsAvailable, listOpfsDatabases
 import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, quoteLiteral, tableNameFrom, formatSql, leadingKeyword } from './sql.js';
 import { Editor } from './editor.js';
 import { Grid, formatValue, plainValue, exportRows } from './grid.js';
+import { normalizeDataUrl, corsHint } from './urls.js';
 import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
 import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet } from './env.js';
 
@@ -21,7 +22,11 @@ const fmtBytes = (n) => (n === null || n === undefined ? '—' : n < 1024 ? `${n
 const fmtNum = (n) => (typeof n === 'number' ? n.toLocaleString() : String(n));
 const now = () => performance.now();
 const timeOfDay = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-const errText = (e) => (e?.code ? `${e.code}: ${e.message}` : String(e?.message ?? e));
+const errText = (e) => {
+  const base = e?.code ? `${e.code}: ${e.message}` : String(e?.message ?? e);
+  const hint = corsHint(base);
+  return hint ? `${base}\n${hint}` : base;
+};
 
 function toast(text, kind = '') {
   const el = h(`<div class="toast ${kind}"></div>`);
@@ -1520,7 +1525,7 @@ function importTab() {
             <p class="sub">CSV, TSV, JSON (array of objects), NDJSON or Parquet. Column types are inferred for new tables.</p>
             <div class="seg" data-src-seg><button class="on" data-src="file">File</button><button data-src="url">URL</button><button data-src="paste">Paste</button></div>
             <div data-src-file><div class="drop" data-drop tabindex="0"><b>Drop a file here</b> or click to choose</div></div>
-            <div data-src-url hidden><label class="field"><span>URL (must allow CORS)</span><input type="url" data-url placeholder="https://example.com/data.csv"></label><button data-fetch>Fetch</button></div>
+            <div data-src-url hidden><label class="field"><span>URL (must allow CORS)</span><input type="url" data-url placeholder="https://raw.githubusercontent.com/…/data.csv"></label><div class="note url-note" data-url-note></div><button data-fetch>Fetch</button></div>
             <div data-src-paste hidden><label class="field"><span>Data</span><textarea class="plain sqlbox" data-paste placeholder="id,name&#10;1,Ada&#10;2,Grace"></textarea></label><button data-use-paste>Use pasted data</button></div>
             <div data-imp-detail hidden>
               <div class="row">
@@ -1540,7 +1545,7 @@ function importTab() {
             <h3>Link an external table</h3>
             <p class="sub">Query a file or URL in place with <code>CREATE EXTERNAL TABLE</code>. Read-only; re-read on every query (Parquet reads only the columns and row groups a query needs).</p>
             <div class="seg" data-lsrc-seg><button class="on" data-lsrc="url">URL</button><button data-lsrc="file">Local file</button></div>
-            <div data-lsrc-url><label class="field"><span>Location (absolute URL, or a path relative to the connection)</span><input type="text" data-lurl placeholder="https://example.com/prices.csv"></label></div>
+            <div data-lsrc-url><label class="field"><span>Location (absolute URL, or a path relative to the connection)</span><input type="text" data-lurl placeholder="https://raw.githubusercontent.com/…/prices.csv"></label><div class="note url-note" data-lurl-note></div></div>
             <div data-lsrc-file hidden>
               <div class="actions" style="margin-bottom:10px"><button data-lpick>Choose file…</button><span class="note" data-lfile-note>${window.showOpenFilePicker ? 'The file stays linked across reloads (you may be asked to grant access again).' : 'This browser cannot keep file access: re-attach the file after a reload.'}</span></div>
             </div>
@@ -1627,14 +1632,16 @@ function importTab() {
         if (f) this.setImportSource(f, f.name);
       };
       $('[data-fetch]', el).onclick = async () => {
-        const url = $('[data-url]', el).value.trim();
-        if (!url) return;
+        const input = $('[data-url]', el).value.trim();
+        if (!input) return;
+        const { url, note } = normalizeDataUrl(input);
+        $('[data-url-note]', el).textContent = note;
         try {
           const r = await fetch(url);
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           this.setImportSource(await r.blob(), url);
         } catch (e) {
-          this.importResult(`Could not fetch ${url}: ${e.message}. The server must allow cross-origin requests (CORS).`, true);
+          this.importResult(`Could not fetch ${url}: ${e.message}.\n${corsHint('CORS ' + url)}`, true);
         }
       };
       $('[data-use-paste]', el).onclick = () => {
@@ -1650,6 +1657,8 @@ function importTab() {
       };
       $('[data-delim]', el).onchange = reprev;
       $('[data-header]', el).onchange = reprev;
+      // Follow the table name: an existing local table means append, anything else a new table.
+      $('[data-table]', el).addEventListener('input', () => this.syncImportMode());
       $('[data-mode]', el).onchange = () => {
         const existing = $('[data-mode]', el).value === 'existing';
         $('[data-table]', el).placeholder = existing ? 'choose a table' : '';
@@ -1664,13 +1673,16 @@ function importTab() {
       const fmt = formatFromName(label);
       $('[data-fmt]', el).value = fmt;
       $('[data-delim]', el).value = fmt === 'tsv' ? '\\t' : ',';
-      const tname = tableNameFrom(label);
-      $('[data-table]', el).value = tname;
-      $('[data-mode]', el).value = app.schema.tables.has(tname) ? 'existing' : 'new';
+      $('[data-table]', el).value = tableNameFrom(label);
+      this.syncImportMode();
       $('[data-imp-note]', el).textContent = `${label} · ${fmtBytes(blob.size)}`;
       $('[data-imp-result]', el).innerHTML = '';
       $('[data-drop]', el).innerHTML = `<b>${esc(label.split('/').pop())}</b> (${fmtBytes(blob.size)}) — drop or click to replace`;
       this.previewImport();
+    },
+    syncImportMode() {
+      const name = $('[data-table]', this.el).value.trim();
+      $('[data-mode]', this.el).value = app.schema.tables.get(name)?.kind === 'table' ? 'existing' : 'new';
     },
     readerArgs() {
       const el = this.el;
@@ -1723,9 +1735,10 @@ function importTab() {
       const table = $('[data-table]', el).value.trim();
       if (!table) return this.importResult('Enter a table name', true);
       const mode = $('[data-mode]', el).value;
-      const exists = app.schema.tables.has(table);
-      if (mode === 'new' && exists) return this.importResult(`Table ${table} already exists — choose “Existing table” to append to it, or another name.`, true);
-      if (mode === 'existing' && !exists) return this.importResult(`There is no table named ${table}.`, true);
+      const kind = app.schema.tables.get(table)?.kind;
+      if (kind && kind !== 'table') return this.importResult(`${table} is ${kind === 'external' ? 'an external table' : 'a ' + kind} and cannot be imported into. Choose another table name.`, true);
+      if (mode === 'new' && kind) return this.importResult(`Table ${table} already exists — choose “Existing table” to append to it, or another name.`, true);
+      if (mode === 'existing' && !kind) return this.importResult(`There is no table named ${table}.`, true);
       const fmt = $('[data-fmt]', el).value;
       const t0 = now();
       const btn = $('[data-do-import]', el);
@@ -1803,7 +1816,9 @@ function importTab() {
       const el = this.el;
       const val = (s) => $(s, el).value.trim();
       const table = val('[data-lname]') || 'linked';
-      let location = this.lsrc === 'file' ? (this.lfileName ? `file:${this.lfileName}` : 'file:…') : val('[data-lurl]');
+      const norm = normalizeDataUrl(val('[data-lurl]'));
+      $('[data-lurl-note]', el).textContent = this.lsrc === 'url' ? norm.note : '';
+      let location = this.lsrc === 'file' ? (this.lfileName ? `file:${this.lfileName}` : 'file:…') : norm.url;
       let connection = val('[data-lconn]');
       let connSql = '';
       if (connection === '__new') {

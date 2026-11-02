@@ -22,6 +22,7 @@
 // Relative paths resolve against the manifest's URL. "link" steps create external tables that read
 // the source at query time (it must be reachable from the browser: same origin or CORS-enabled).
 import { quoteIdent, quoteLiteral } from './sql.js';
+import { normalizeDataUrl } from './urls.js';
 
 export async function fetchManifest(url) {
   const abs = new URL(url, location.href).href;
@@ -46,7 +47,8 @@ function hash(s) {
 /** Run a manifest's steps against an open database. `log(level, text)` reports progress. */
 export async function applyManifest(db, m, log) {
   const base = m.__base ?? location.href;
-  const resolve = (p) => new URL(p, base).href;
+  // Relative paths resolve against the manifest; GitHub/Hugging Face page links become raw-file URLs.
+  const resolve = (p) => normalizeDataUrl(new URL(p, base).href).url;
   let n = 0;
   for (const step of m.steps ?? []) {
     n++;

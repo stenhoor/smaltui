@@ -5,6 +5,7 @@ import { Editor } from './workbench/app/editor.js';
 import { Grid } from './workbench/app/grid.js';
 import { fetchManifest, applyManifest } from './workbench/app/env.js';
 import { statementAt, returnsRows, quoteIdent } from './workbench/app/sql.js';
+import { corsHint } from './workbench/app/urls.js';
 
 const ENV = 'workbench/envs/demo/env.json';
 const MAX_ROWS = 500;
@@ -86,7 +87,11 @@ const $ = (s) => document.querySelector(s);
 const statusEl = $('#consoleStatus');
 const runBtn = $('#runBtn');
 const fmtMs = (ms) => (ms < 1000 ? `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`);
-const errText = (e) => (e?.code ? `${e.code}: ${e.message}` : String(e?.message ?? e));
+const errText = (e) => {
+  const base = e?.code ? `${e.code}: ${e.message}` : String(e?.message ?? e);
+  const hint = corsHint(base);
+  return hint ? `${base} ${hint}` : base;
+};
 
 function status(text, err = false) {
   statusEl.textContent = text;
