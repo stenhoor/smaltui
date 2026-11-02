@@ -1,3 +1,7 @@
 [
-  { "name": "Demo shop", "path": "demo/env.json", "description": "Products, customers and orders with a view, a materialized view and a linked CSV." }
+  {
+    "name": "Demo shop",
+    "path": "demo/env.json",
+    "description": "Products, customers and orders with a view, a materialized view, a linked CSV and a linked Parquet file."
+  }
 ]

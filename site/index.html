@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>smaltui</title>
+  <meta name="description" content="smaltui is a SQL workbench for smaltdb that runs entirely in your browser. Try it live: no server, no install, your data stays on your machine.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b5fd9'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h9' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <script>
+    // Links made for the workbench (?env=…, ?db=…) used to point at the site root: forward them.
+    if (/[?&](env|db|engine|storage|sql)=/.test(location.search)) location.replace('workbench/' + location.search + location.hash);
+    try { const t = JSON.parse(localStorage.getItem('smaltui.theme')); if (t) document.documentElement.dataset.theme = t; } catch {}
+  </script>
+  <link rel="stylesheet" href="workbench/app/styles.css">
+  <link rel="stylesheet" href="site.css">
+</head>
+<body class="landing">
+  <header class="site-head">
+    <a class="brand" href="./" aria-label="smaltui home">
+      <svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M9 11h14M9 16h14M9 21h9" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>
+      <span>smalt<b>ui</b></span>
+    </a>
+    <nav class="site-nav">
+      <a href="#try">Try it</a>
+      <a href="#features">Features</a>
+      <a href="#environments">Environments</a>
+      <a href="https://github.com/stenhoor/smaltui" rel="noopener">GitHub</a>
+      <button class="icon theme-btn" id="themeBtn" title="Toggle light / dark" aria-label="Toggle light or dark theme"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 2.5a7.5 7.5 0 0 1 0 15z" fill="currentColor"/></svg></button>
+      <a class="btn primary" href="workbench/?env=envs/demo/env.json">Open workbench</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <p class="eyebrow">A query workbench for <a href="https://github.com/stenhoor/smaltdb" rel="noopener">smaltdb</a></p>
+      <h1>A SQL workbench that runs entirely in your browser</h1>
+      <p class="lede">smaltui is an object explorer, a query editor and data grids for smaltdb, an embedded SQL engine for the web. There is no server and nothing to install. The database runs in a Web Worker on this page, and your data stays on your machine.</p>
+      <div class="cta">
+        <a class="btn primary big" href="workbench/?env=envs/demo/env.json">Open the demo workbench</a>
+        <a class="btn big" href="#try">Run a query below</a>
+        <a class="quiet" href="workbench/">or start with an empty database →</a>
+      </div>
+      <ul class="facts">
+        <li id="factEngine">smaltdb from npm</li>
+        <li>Stored in your browser (OPFS)</li>
+        <li>CSV · JSON · Parquet</li>
+        <li>Static hosting, MIT license</li>
+      </ul>
+    </section>
+
+    <section class="try" id="try" aria-labelledby="tryTitle">
+      <div class="section-head">
+        <h2 id="tryTitle">Try it here</h2>
+        <p>This console runs a demo tea-and-coffee shop: tables, a view, a materialized view, a linked CSV and a linked Parquet file. It is loaded into an in-memory smaltdb in your browser. Pick an example or write your own SQL, then press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.</p>
+      </div>
+      <div class="console">
+        <aside class="examples" aria-label="Example queries">
+          <div class="examples-title">Examples</div>
+          <div id="examples"></div>
+          <div class="schema-title">Tables</div>
+          <div id="schemaList" class="schema-list"></div>
+        </aside>
+        <div class="console-main">
+          <div class="console-bar">
+            <button class="primary" id="runBtn" disabled title="Run the statement at the cursor (Ctrl+Enter)">▶ Run</button>
+            <span class="console-status" id="consoleStatus" role="status">Starting smaltdb…</span>
+            <a class="btn" id="openInWb" href="workbench/?env=envs/demo/env.json" title="Open this query in the full workbench">Open in workbench ↗</a>
+          </div>
+          <div class="console-editor" id="editorHost"></div>
+          <div class="console-result">
+            <div class="grid-host" id="gridHost"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="features" id="features" aria-labelledby="featTitle">
+      <div class="section-head"><h2 id="featTitle">What the workbench does</h2></div>
+      <div class="feature-grid">
+        <article><h3>Object explorer</h3><p>Tables, views, materialized views, external tables and connections, with columns and keys. Right-click an object to script SELECT, INSERT or DDL, count rows, refresh or drop it.</p></article>
+        <article><h3>Query editor</h3><p>Tabs with highlighting and completion of names and aliases. Run the statement at the cursor or a whole script. Bind variables, query plans, and syntax errors marked where they occur.</p></article>
+        <article><h3>Data grids</h3><p>Virtualized results that are fetched on demand. Browse tables with paging, sorting and a WHERE filter. Edit cells and add or delete rows in tables with a primary key.</p></article>
+        <article><h3>Import &amp; link</h3><p>Load CSV, TSV, JSON, NDJSON or Parquet into a table. Or link a file or URL as an external table that is read in place.</p></article>
+        <article><h3>Environments</h3><p>A JSON manifest builds a database when the page opens: its schema, data, linked sources and saved queries. Share a link and others get the same workspace.</p></article>
+        <article><h3>Private by default</h3><p>Databases live in your browser's private storage (OPFS) or in memory. Nothing is uploaded; the only data that leaves the page is what you choose to fetch from a URL.</p></article>
+      </div>
+    </section>
+
+    <section class="envs" id="environments" aria-labelledby="envTitle">
+      <div class="section-head">
+        <h2 id="envTitle">Serve a live environment</h2>
+        <p>smaltui is a folder of static files. Put an environment manifest next to it and link to <code>workbench/?env=path/to/env.json</code>. Every visitor gets the database built in their own browser. The demo above is <a href="workbench/envs/demo/env.json">one such file</a>.</p>
+      </div>
+      <div class="env-cols">
+        <pre class="code" aria-label="Example environment manifest"><code>{
+  "smaltui": 1,
+  "name": "Demo shop",
+  "database": { "name": "demo", "storage": "memory" },
+  "steps": [
+    { "sqlFile": "schema.sql" },
+    { "import": "data/orders.csv", "table": "orders" },
+    { "link": "data/regional_sales.parquet",
+      "table": "regional_sales", "format": "parquet" }
+  ],
+  "queries": [{ "title": "Revenue", "sql": "SELECT …" }]
+}</code></pre>
+        <ol class="steps">
+          <li><b>smaltdb runs in a Web Worker.</b> It comes from the npm package and is served with the page, so queries never block the UI.</li>
+          <li><b>Data stays local.</b> Databases are kept in the browser's Origin Private File System or in memory. External tables read files and URLs only when they are queried.</li>
+          <li><b>Any static host works.</b> This site is served by GitHub Pages. With COOP/COEP headers (Netlify, Cloudflare), smaltdb also runs queries on parallel worker threads.</li>
+        </ol>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-foot">
+    <span>smaltui · MIT · <span id="footEngine">smaltdb</span></span>
+    <span><a href="https://github.com/stenhoor/smaltui" rel="noopener">smaltui on GitHub</a> · <a href="https://github.com/stenhoor/smaltdb" rel="noopener">smaltdb</a> · <a href="https://www.npmjs.com/package/smaltdb" rel="noopener">npm</a></span>
+  </footer>
+
+  <script type="module" src="demo.js"></script>
+</body>
+</html>
