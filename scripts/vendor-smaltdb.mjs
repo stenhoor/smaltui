@@ -1,63 +1,54 @@
-// Puts a smaltdb build in vendor/smaltdb/ (smaltdb.js, smaltdb-worker.js and its lazily loaded chunks/),
-// the engine the page loads by default.
+// Copies the smaltdb browser build into vendor/smaltdb/, the engine the page loads by default
+// (same-origin, so it works offline and under cross-origin isolation).
 //
-// smaltdb is not on npm yet, so by default this bundles it from source:
-//   node scripts/vendor-smaltdb.mjs                      # clone github.com/stenhoor/smaltdb (main) into .cache/ and bundle
-//   node scripts/vendor-smaltdb.mjs --ref <sha|branch>   # a specific revision
-//   node scripts/vendor-smaltdb.mjs --from ../smaltdb    # an existing checkout
-//   node scripts/vendor-smaltdb.mjs --npm                # once published: copy node_modules/smaltdb/dist
-import { build } from 'esbuild';
-import { execFileSync } from 'node:child_process';
+//   node scripts/vendor-smaltdb.mjs                    # from the installed npm package (runs on `npm install`)
+//   node scripts/vendor-smaltdb.mjs --from ../smaltdb  # bundle an unreleased local checkout instead
+//
+// The npm package is the source of truth: its version is pinned in package.json / package-lock.json.
+// To move to a newer smaltdb: `npm install smaltdb@latest` (this script then runs again).
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'vendor', 'smaltdb');
 const args = process.argv.slice(2);
-const opt = (name) => {
-  const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : undefined;
-};
-const repo = opt('--repo') ?? process.env.SMALTDB_REPO ?? 'https://github.com/stenhoor/smaltdb.git';
-const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim();
+const from = args.includes('--from') ? resolve(args[args.indexOf('--from') + 1]) : null;
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
-if (args.includes('--npm')) {
-  const pkgDir = join(root, 'node_modules', 'smaltdb');
-  if (!existsSync(pkgDir)) throw new Error('smaltdb is not installed: npm install smaltdb');
+if (!from) {
+  let pkgDir;
+  try {
+    pkgDir = dirname(createRequire(join(root, 'package.json')).resolve('smaltdb/package.json'));
+  } catch {
+    console.error('smaltdb is not installed: run `npm install`.');
+    process.exit(1);
+  }
   const pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
-  for (const f of ['smaltdb.js', 'smaltdb-worker.js']) cpSync(join(pkgDir, 'dist', f), join(out, f));
-  if (existsSync(join(pkgDir, 'dist', 'chunks'))) cpSync(join(pkgDir, 'dist', 'chunks'), join(out, 'chunks'), { recursive: true });
+  const dist = join(pkgDir, 'dist');
+  // The worker loads its Parquet reader from chunks/ on first use; source maps are left out.
+  for (const f of ['smaltdb.js', 'smaltdb-worker.js']) cpSync(join(dist, f), join(out, f));
+  if (existsSync(join(dist, 'chunks'))) cpSync(join(dist, 'chunks'), join(out, 'chunks'), { recursive: true, filter: (p) => !p.endsWith('.map') });
   writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'npm', version: pkg.version }, null, 2) + '\n');
-  console.log(`vendored smaltdb@${pkg.version} from npm`);
-  process.exit(0);
+  console.log(`vendor/smaltdb: smaltdb@${pkg.version} from npm`);
+} else {
+  // A local checkout: bundle it the way smaltdb's own build does (the worker code-split so the
+  // Parquet reader is a lazily loaded chunk). Its optional dependencies resolve from the checkout.
+  const { build } = await import('esbuild');
+  const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning', nodePaths: [join(from, 'node_modules'), join(root, 'node_modules')] };
+  await Promise.all([
+    build({ ...common, entryPoints: [join(from, 'src/client/index.ts')], outfile: join(out, 'smaltdb.js') }),
+    build({ ...common, entryPoints: { 'smaltdb-worker': join(from, 'src/engine/worker.ts') }, outdir: out, splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
+  ]);
+  const pkg = JSON.parse(readFileSync(join(from, 'package.json'), 'utf8'));
+  let commit = null;
+  try {
+    const { execFileSync } = await import('node:child_process');
+    commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: from, encoding: 'utf8' }).trim();
+  } catch {}
+  writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'checkout', path: from, version: pkg.version, commit }, null, 2) + '\n');
+  console.log(`vendor/smaltdb: local checkout ${from}${commit ? ' @ ' + commit.slice(0, 12) : ''} (run \`npm run vendor\` to go back to the npm package)`);
 }
-
-let src = opt('--from') ?? process.env.SMALTDB_DIR;
-if (!src) {
-  src = join(root, '.cache', 'smaltdb');
-  const ref = opt('--ref') ?? process.env.SMALTDB_REF ?? 'main';
-  if (!existsSync(join(src, '.git'))) execFileSync('git', ['clone', '--quiet', repo, src], { stdio: 'inherit' });
-  git(src, 'fetch', '--quiet', 'origin', ref);
-  git(src, 'checkout', '--quiet', '--detach', 'FETCH_HEAD');
-}
-src = resolve(src);
-let commit = 'unknown';
-try {
-  commit = git(src, 'rev-parse', 'HEAD');
-} catch {}
-
-// smaltdb's optional peer dependencies (the Parquet reader) resolve from smaltui's node_modules,
-// so a checkout outside this folder works too.
-const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning', nodePaths: [join(root, 'node_modules')] };
-await Promise.all([
-  build({ ...common, entryPoints: [join(src, 'src/client/index.ts')], outfile: join(out, 'smaltdb.js') }),
-  // As in smaltdb's own build: code splitting, so the Parquet reader is a chunk the worker loads on first use.
-  build({ ...common, entryPoints: { 'smaltdb-worker': join(src, 'src/engine/worker.ts') }, outdir: out, splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
-]);
-const pkg = JSON.parse(readFileSync(join(src, 'package.json'), 'utf8'));
-writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'git', repo, commit, version: pkg.version, builtAt: new Date().toISOString() }, null, 2) + '\n');
-console.log(`vendored smaltdb ${commit.slice(0, 12)} into vendor/smaltdb/`);

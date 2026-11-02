@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, process.argv[2] ?? 'dist');
 if (!existsSync(join(root, 'vendor/smaltdb/smaltdb.js'))) {
-  console.error('vendor/smaltdb is missing: run `npm run vendor` first (or deploy with ?engine=npm once smaltdb is published).');
+  console.error('vendor/smaltdb is missing: run `npm install` (it copies the smaltdb npm package there).');
   process.exit(1);
 }
 rmSync(out, { recursive: true, force: true });

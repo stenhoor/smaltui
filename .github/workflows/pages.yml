@@ -5,8 +5,8 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      smaltdb_ref:
-        description: 'Rebuild the vendored engine from this smaltdb ref (branch, tag or sha). Empty = use the committed vendor/ build.'
+      smaltdb_version:
+        description: 'Deploy with this smaltdb npm version (e.g. 0.9.0 or latest). Empty = the version pinned in package-lock.json.'
         required: false
         default: ''
 
@@ -27,10 +27,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci
-      - name: Rebuild vendored smaltdb
-        if: ${{ inputs.smaltdb_ref != '' }}
-        run: npm run vendor -- --ref "${{ inputs.smaltdb_ref }}"
+      - run: npm ci   # postinstall copies node_modules/smaltdb/dist into vendor/smaltdb
+      - name: Use another smaltdb version
+        if: ${{ inputs.smaltdb_version != '' }}
+        run: npm install --no-save "smaltdb@${{ inputs.smaltdb_version }}"
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

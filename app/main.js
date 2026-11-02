@@ -2080,7 +2080,7 @@ function welcomeTab() {
           <button data-q="demo"><b>★ Open the demo</b><span>A sample environment with tables, a view and saved queries.</span></button>
           <button data-q="db"><b>▤ Databases</b><span>Open, create or delete databases stored in this browser.</span></button>
         </div>
-        <p class="lead" style="font-size:12px">Engine: ${esc(app.engine?.label ?? '—')}${v?.commit ? ` @ <code>${esc(v.commit.slice(0, 10))}</code>` : v?.version ? ` ${esc(v.version)}` : ''}. Shortcuts: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> run script · <kbd>Ctrl</kbd>+<kbd>E</kbd> explain · <kbd>Ctrl</kbd>+<kbd>Space</kbd> complete.</p>
+        <p class="lead" style="font-size:12px">Engine: ${esc(app.engine?.label ?? '—')}${v?.version ? ` · smaltdb ${esc(v.version)}` : ''}${v?.source === 'checkout' && v.commit ? ` @ <code>${esc(v.commit.slice(0, 10))}</code>` : ''}. Shortcuts: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> run script · <kbd>Ctrl</kbd>+<kbd>E</kbd> explain · <kbd>Ctrl</kbd>+<kbd>Space</kbd> complete.</p>
       </div></div>`;
       this.el.querySelector('.quick').onclick = (e) => {
         const b = e.target.closest('[data-q]');
@@ -2104,7 +2104,7 @@ async function engineDialog() {
     title: 'Engine source',
     body: `<p>smaltui loads the smaltdb engine from one of these. The page reloads to switch.</p>
       <label class="field"><span>Source</span><select name="kind">
-        <option value="vendor" ${cur === 'vendor' ? 'selected' : ''}>Vendored build (./vendor/smaltdb/)</option>
+        <option value="vendor" ${cur === 'vendor' ? 'selected' : ''}>Bundled npm package (./vendor/smaltdb/, version pinned in package.json)</option>
         <option value="npm" ${cur.startsWith('npm') ? 'selected' : ''}>npm via jsDelivr</option>
         <option value="url" ${!['vendor'].includes(cur) && !cur.startsWith('npm') ? 'selected' : ''}>Custom URL (a folder with smaltdb.js and smaltdb-worker.js)</option>
       </select></label>
@@ -2221,10 +2221,10 @@ async function init() {
   try {
     app.engine = await loadEngine();
     const v = app.engine.version;
-    $('#stEngine').textContent = `smaltdb ${v?.commit ? v.commit.slice(0, 8) : v?.version ?? ''} · ${app.engine.label}`;
+    $('#stEngine').textContent = `smaltdb ${v?.version ?? ''}${v?.source === 'checkout' && v.commit ? ' @ ' + v.commit.slice(0, 8) : ''} · ${app.engine.label}`;
   } catch (e) {
     $('#stEngine').textContent = 'engine failed to load';
-    $('#panes').innerHTML = `<div class="placeholder"><h3>The smaltdb engine could not be loaded</h3>${esc(e.message)}<br><br>Run <code>npm run vendor</code> to build it into <code>vendor/smaltdb/</code>, or choose another source with <code>?engine=npm</code> or <code>?engine=&lt;url&gt;</code>.</div>`;
+    $('#panes').innerHTML = `<div class="placeholder"><h3>The smaltdb engine could not be loaded</h3>${esc(e.message)}<br><br>Run <code>npm install</code> to copy it into <code>vendor/smaltdb/</code>, or choose another source with <code>?engine=npm</code> or <code>?engine=&lt;url&gt;</code>.</div>`;
     return;
   }
   // Restore query tabs.
