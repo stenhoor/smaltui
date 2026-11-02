@@ -328,6 +328,9 @@ input:focus, select:focus, textarea.plain:focus { border-color: var(--accent); o
 .actions .note { color: var(--muted); font-size: 12px; }
 .inline-err { color: var(--err); font-size: 12px; white-space: pre-wrap; margin-top: 6px; }
 .inline-ok { color: var(--ok); font-size: 12px; margin-top: 6px; }
+.url-note { color: var(--muted); font-size: 12px; margin: -4px 0 10px; word-break: break-all; }
+.url-note:empty { display: none; }
+[data-src-url] [data-fetch] { margin-bottom: 12px; }
 
 /* ------------------------------------------------------------- history */
 .hist-list { flex: 1; overflow: auto; }

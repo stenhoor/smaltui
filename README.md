@@ -37,6 +37,10 @@ full workbench is at [`/workbench/`](https://stenhoor.github.io/smaltui/workbenc
     headers (kept in memory only) and a local materialized-view cache. The SQL is shown and can be edited before it
     runs. On Chromium, local files stay linked across reloads (File System Access handles in IndexedDB). Elsewhere,
     the sidebar asks you to attach them again.
+  - *URLs from other sites* must allow cross-origin reads (CORS). Links copied from GitHub (`github.com/…/blob/…`
+    or `…/raw/…`, e.g. TidyTuesday datasets) and Hugging Face (`…/blob/…`) are rewritten to their raw-file URLs
+    (`raw.githubusercontent.com`, `…/resolve/…`), which do. The note under the field shows the URL used. When a
+    source does not allow it, the error explains why and suggests the raw URL where there is one.
   - *Environments:* load a manifest, or export the current database as one.
 - **Databases:** open, create or delete OPFS databases, or use in-memory ones (`Ctrl+Shift+O`). The database is
   stored in the URL (`?db=name`, `&storage=memory`), so a link reopens it.

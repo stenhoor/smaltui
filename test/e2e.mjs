@@ -179,6 +179,29 @@ try {
   });
   await shot('06-parquet-import');
 
+  await step('GitHub page links are rewritten to raw files; CORS errors explain themselves', async () => {
+    const r = await page.evaluate(async () => {
+      const { normalizeDataUrl, corsHint } = await import('/app/urls.js');
+      const blob = 'https://github.com/rfordatascience/tidytuesday/blob/main/data/2024/2024-01-23/english_education.csv';
+      return {
+        blob: normalizeDataUrl(blob).url,
+        rawLink: normalizeDataUrl(blob.replace('/blob/', '/raw/') + '?raw=true').url,
+        folder: normalizeDataUrl('https://github.com/o/r/tree/main/data').note,
+        hint: corsHint(`fetching ${blob} failed: Failed to fetch (a network error, or a CORS error: the server must allow this origin)`),
+        none: corsHint('SMALT_SYNTAX: near "x"'),
+      };
+    });
+    const raw = 'https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2024/2024-01-23/english_education.csv';
+    if (r.blob !== raw || r.rawLink !== raw || !/folder/.test(r.folder) || !r.hint.includes(raw) || r.none !== '') throw new Error(JSON.stringify(r));
+    // The Link tab shows the rewrite and uses the raw URL in its SQL.
+    await page.locator('#btnImport').click();
+    await activePane().locator('[data-src="url"]').first().waitFor();
+    await activePane().locator('[data-lurl]').fill('https://github.com/o/r/blob/main/x.csv');
+    const sql = await activePane().locator('[data-lsql]').inputValue();
+    const note = await activePane().locator('[data-lurl-note]').textContent();
+    if (!sql.includes('https://raw.githubusercontent.com/o/r/main/x.csv') || !/raw file/.test(note)) throw new Error(sql + ' | ' + note);
+  });
+
   await step('demo environment loads', async () => {
     await page.goto(base + '?env=envs/demo/env.json');
     await page.waitForFunction(() => window.smaltui?.db && window.smaltui.schema.tables.has('monthly_revenue'), null, { timeout: 20000 });
