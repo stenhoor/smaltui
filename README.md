@@ -8,6 +8,9 @@ and databases are stored in that browser's private storage (OPFS) or in memory.
 Serve the folder from any static host and you have a live environment. Add `?env=…` and the page builds a ready-made
 database (schema, data, linked sources, saved queries) when it opens.
 
+**Live demo:** <https://stenhoor.github.io/smaltui/>. The landing page has a SQL console over the demo database. The
+full workbench is at [`/workbench/`](https://stenhoor.github.io/smaltui/workbench/?env=envs/demo/env.json).
+
 ## Features
 
 - **Object explorer:** tables, views, materialized views, external tables and connections, with their columns and
@@ -88,7 +91,18 @@ cross-origin engine worker is started through a same-origin blob module, so a CD
 
 ## Deploy
 
-`npm ci && npm run build` copies the site, with the engine, to `dist/`. Any static host works.
+`npm ci && npm run build` assembles the site in `dist/`. Any static host works. `npm run preview` builds it and
+serves it locally.
+
+```
+dist/index.html, site.css, demo.js   landing page with a live SQL console (from site/)
+dist/workbench/                      the workbench: index.html, app/, vendor/, envs/
+```
+
+The landing console runs in-browser on the demo environment, using the workbench's own engine loader, editor, grid and
+environment modules. "Open in workbench" links to `workbench/?env=…&sql=…`. The `sql` parameter opens a query tab
+and runs it. Links to the site root that carry workbench parameters (`?env=`, `?db=`, `?engine=`, `?sql=`) are
+forwarded to `/workbench/`.
 
 - **GitHub Pages:** `.github/workflows/pages.yml` deploys on every push to `main`. (Enable Pages with "GitHub
   Actions" as the source.) Run it manually with `smaltdb_version` set to deploy another npm version without
@@ -100,7 +114,7 @@ cross-origin engine worker is started through a same-origin blob module, so a CD
 An environment is a JSON manifest that builds a database when the page opens:
 
 ```
-https://your.host/smaltui/?env=envs/demo/env.json
+https://your.host/smaltui/workbench/?env=envs/demo/env.json
 ```
 
 ```json
@@ -140,7 +154,8 @@ a linked CSV and saved queries. The welcome tab opens it.
 ## Layout
 
 ```
-index.html            page shell
+index.html            workbench page shell (served at /workbench/ in the built site)
+site/                 landing page with the live console (served at / in the built site)
 app/main.js           application: tabs, explorer, query runner, table viewer, import, history
 app/editor.js         SQL editor (highlight overlay, completion, shortcuts)
 app/grid.js           virtualized data grid

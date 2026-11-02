@@ -2258,6 +2258,22 @@ async function init() {
       } catch {}
     }
   }
+  // ?sql=… opens (and runs) a shared query, e.g. from the landing page's console. It is removed
+  // from the URL so a reload does not open it again.
+  const shared = params.get('sql');
+  if (shared && app.db) {
+    const url = new URL(location.href);
+    url.searchParams.delete('sql');
+    history.replaceState(null, '', url);
+    const existing = app.tabs.find((t) => t.kind === 'query' && t.editor?.value.trim() === shared.trim());
+    if (existing) {
+      activateTab(existing);
+      existing.run('script');
+    } else {
+      const t = newQueryTab({ title: 'Shared query', sql: shared.endsWith('\n') ? shared : shared + '\n' });
+      t.run('script');
+    }
+  }
 }
 
 init();

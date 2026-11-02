@@ -213,6 +213,31 @@ try {
     if (r < 1) throw new Error('lost data');
   });
 
+  await step('built site: landing console runs and hands off to the workbench (no isolation, like GitHub Pages)', async () => {
+    const out = join(root, '.cache', 'site-e2e');
+    await new Promise((res, rej) => spawn(process.execPath, [join(root, 'scripts/build.mjs'), out], { stdio: 'ignore' }).on('exit', (c) => (c ? rej(new Error('build failed')) : res())));
+    const sitePort = port + 1;
+    const site = spawn(process.execPath, [join(root, 'scripts/serve.mjs'), out, '--port', String(sitePort), '--no-isolation'], { stdio: 'pipe' });
+    await new Promise((r) => site.stdout.once('data', r));
+    try {
+      const siteBase = `http://localhost:${sitePort}/`;
+      await page.goto(siteBase);
+      await page.waitForFunction(() => /rows? in/.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 20000 });
+      await page.locator('.example', { hasText: 'Parquet file' }).click();
+      await page.waitForFunction(() => document.querySelectorAll('#gridHost tbody tr[data-row]').length === 3, null, { timeout: 10000 });
+      const href = await page.locator('#openInWb').getAttribute('href');
+      await page.goto(siteBase + href);
+      await page.waitForFunction(() => document.querySelector('.tab.active')?.textContent.includes('Shared query') && document.querySelectorAll('.pane.active .pane.active tbody tr[data-row], .pane.active tbody tr[data-row]').length === 3, null, { timeout: 20000 });
+      await page.goto(siteBase + '?env=envs/demo/env.json');
+      await page.waitForURL(/\/workbench\/\?env=/, { timeout: 5000 });
+      await page.waitForFunction(() => window.smaltui?.db, null, { timeout: 20000 });
+      await shot('07-site');
+    } finally {
+      await page.goto('about:blank');
+      site.kill();
+    }
+  });
+
   await step('no uncaught page errors', async () => {
     const real = errors.filter((e) => !/favicon/.test(e));
     if (real.length) throw new Error(real.join(' | '));
