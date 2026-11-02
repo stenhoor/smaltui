@@ -26,9 +26,11 @@ database (schema, data, linked sources, saved queries) when it opens.
   controls. In tables with a primary key you can edit a cell (double-click or `Enter`; `Ctrl+Delete` sets NULL),
   insert rows and delete rows.
 - **Import tab:**
-  - *Import into a table:* load a file (drop or choose), a URL, or pasted CSV / TSV / JSON / NDJSON. The preview shows
-    the inferred column types. You can create a new table or append to an existing one.
-  - *Link an external table:* `CREATE EXTERNAL TABLE` over a URL or a local file, with optional connections, auth
+  - *Import into a table:* load a file (drop or choose), a URL, or pasted CSV / TSV / JSON / NDJSON, or a Parquet
+    file. The preview shows the inferred column types. You can create a new table or append to an existing one.
+    (Parquet is copied through a temporary external table and `INSERT … SELECT`.)
+  - *Link an external table:* `CREATE EXTERNAL TABLE` over a URL or a local file (CSV, TSV, JSON, NDJSON or
+    Parquet; Parquet over HTTP is read with Range requests, only the columns and row groups a query needs), with optional connections, auth
     headers (kept in memory only) and a local materialized-view cache. The SQL is shown and can be edited before it
     runs. On Chromium, local files stay linked across reloads (File System Access handles in IndexedDB). Elsewhere,
     the sidebar asks you to attach them again.
@@ -40,53 +42,57 @@ database (schema, data, linked sources, saved queries) when it opens.
 ## Run it locally
 
 ```bash
-npm install
+npm install          # also copies the smaltdb engine into vendor/smaltdb/
 ```
 
 ```bash
 npm run serve        # http://localhost:8080
 ```
 
-`scripts/serve.mjs` sends COOP/COEP headers, so the page is cross-origin isolated. smaltdb then uses parallel
-reader workers and can interrupt running statements. OPFS needs a secure context; `localhost` counts.
+`scripts/serve.mjs` sends COOP/COEP headers, so the page is cross-origin isolated: smaltdb then uses parallel
+reader workers and can interrupt running statements. It also answers Range and HEAD requests, which smaltdb uses for
+Parquet and for freshness checks. OPFS needs a secure context; `localhost` counts.
 
 ## The smaltdb engine
 
-smaltdb is not on npm yet, so smaltui ships a **vendored build** in `vendor/smaltdb/` (`smaltdb.js`, the client, and
-`smaltdb-worker.js`, the engine). `vendor/smaltdb/VERSION.json` records the commit. To update it:
+smaltui uses the [`smaltdb` npm package](https://www.npmjs.com/package/smaltdb). Its version is pinned in
+`package.json` / `package-lock.json`. On `npm install`, a postinstall step (`scripts/vendor-smaltdb.mjs`) copies the
+package's browser build into `vendor/smaltdb/`: `smaltdb.js` (the client), `smaltdb-worker.js` (the engine) and
+`chunks/` (the Parquet reader, which the worker loads on first use). `vendor/` is generated, not committed. The page
+loads the engine from there, from the same origin, so it works offline and under cross-origin isolation.
+
+To move to a newer smaltdb:
 
 ```bash
-npm run vendor                         # bundle github.com/stenhoor/smaltdb@main from source
+npm install smaltdb@latest
 ```
+
+To try an unreleased smaltdb from a local checkout (`npm run vendor` goes back to the npm package):
 
 ```bash
-npm run vendor -- --ref <sha|branch>   # a specific revision
+npm run vendor -- --from ../smaltdb
 ```
 
-```bash
-npm run vendor -- --from ../smaltdb    # a local checkout
-```
-
-When smaltdb is published, either vendor it from npm (`npm install smaltdb && npm run vendor -- --npm`) or skip
-vendoring and load it from a CDN at runtime:
+The engine can also come from a CDN at runtime:
 
 | URL parameter | Engine |
 |---|---|
-| *(none)* / `?engine=vendor` | `./vendor/smaltdb/` |
+| *(none)* / `?engine=vendor` | `./vendor/smaltdb/` (the pinned npm version) |
 | `?engine=npm` | latest `smaltdb` from jsDelivr |
-| `?engine=npm@0.2.0` | a specific npm version |
+| `?engine=npm@0.8.3` | a specific npm version from jsDelivr |
 | `?engine=https://host/path/dist/` | any folder that serves `smaltdb.js` + `smaltdb-worker.js` |
 
-The choice can also be made in **⋯ → Engine source** (it is remembered per browser). A cross-origin engine worker is
-started through a same-origin blob module, so a CDN works without extra setup.
+The choice can also be made in **⋯ → Engine source** (it is remembered per browser). If `vendor/` is missing
+because the folder is served without `npm install`, the page falls back to the latest release on jsDelivr. A
+cross-origin engine worker is started through a same-origin blob module, so a CDN works without extra setup.
 
 ## Deploy
 
-`npm run build` copies the site to `dist/`. Any static host works.
+`npm ci && npm run build` copies the site, with the engine, to `dist/`. Any static host works.
 
 - **GitHub Pages:** `.github/workflows/pages.yml` deploys on every push to `main`. (Enable Pages with "GitHub
-  Actions" as the source.) Run it manually with `smaltdb_ref` set to rebuild the engine from that ref first.
-  GitHub Pages cannot send COOP/COEP headers. smaltui works there, but without parallel readers.
+  Actions" as the source.) Run it manually with `smaltdb_version` set to deploy another npm version without
+  changing the lockfile. GitHub Pages cannot send COOP/COEP headers. smaltui works there, but without parallel readers.
 - **Netlify / Cloudflare Pages:** `_headers` adds the isolation headers.
 
 ## Environments
@@ -108,6 +114,7 @@ https://your.host/smaltui/?env=envs/demo/env.json
     { "sql": "CREATE INDEX …;" },
     { "import": "data/products.csv", "table": "products" },
     { "import": "data/customers.json", "table": "customers" },
+    { "import": "data/sales.parquet", "table": "sales" },
     { "table": "notes", "data": [{ "id": 1, "body": "inline rows" }] },
     { "connection": "api", "url": "https://data.example.com/v1/" },
     { "link": "data/exchange_rates.csv", "table": "exchange_rates", "format": "csv", "options": { "header": true } }
@@ -141,9 +148,9 @@ app/sql.js            tokenizer, statement splitter, parameter scanner, formatte
 app/engine.js         engine loading (vendor / npm / URL) and the OPFS database catalog
 app/env.js            environment manifests: load, export, SQL dump
 app/store.js          localStorage prefs/history, IndexedDB file handles
-vendor/smaltdb/       vendored engine build
+vendor/smaltdb/       engine, copied from node_modules/smaltdb on install (not committed)
 envs/                 environments served with the page
-scripts/              vendor, build and serve scripts
+scripts/              vendor (npm → vendor/), build and serve scripts
 test/e2e.mjs          end-to-end test in headless Chromium (npm test)
 ```
 

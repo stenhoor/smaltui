@@ -6,6 +6,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/vendor-smaltdb.mjs",
     "vendor": "node scripts/vendor-smaltdb.mjs",
     "build": "node scripts/build.mjs",
     "serve": "node scripts/serve.mjs",
@@ -13,5 +14,8 @@
   },
   "devDependencies": {
     "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "smaltdb": "^0.8.3"
   }
 }

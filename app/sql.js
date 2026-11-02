@@ -274,7 +274,7 @@ export function quoteLiteral(v) {
 /** A safe table name derived from a file name or URL. */
 export function tableNameFrom(source) {
   let base = String(source).split(/[\\/?#]/).filter(Boolean).pop() ?? 'data';
-  base = base.replace(/\.(csv|tsv|txt|json|ndjson|jsonl)(\.gz)?$/i, '');
+  base = base.replace(/\.(csv|tsv|txt|json|ndjson|jsonl|parquet)(\.gz)?$/i, '');
   base = base.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
   if (!base) base = 'data';
   if (/^[0-9]/.test(base)) base = 't_' + base;

@@ -1,12 +1,14 @@
 // Loads the smaltdb client and decides where its engine worker comes from.
 //
-// ?engine=vendor (default)  ./vendor/smaltdb/ — a build bundled from source by scripts/vendor-smaltdb.mjs
-// ?engine=npm               the latest smaltdb published to npm, from jsDelivr
-// ?engine=npm@0.3.1         a specific npm version
+// ?engine=vendor (default)  ./vendor/smaltdb/ — the npm package version pinned in package.json,
+//                           copied there by `npm install` (scripts/vendor-smaltdb.mjs)
+// ?engine=npm               the latest smaltdb on npm, from jsDelivr
+// ?engine=npm@0.8.3         a specific npm version
 // ?engine=https://…/dist/   any folder that serves smaltdb.js and smaltdb-worker.js
 //
-// A worker script must be same-origin, so a cross-origin engine is started through a tiny blob
-// module that imports it.
+// If vendor/ is missing (the folder is served without `npm install`), the latest npm release is
+// loaded from jsDelivr instead. A worker script must be same-origin, so a cross-origin engine is
+// started through a tiny blob module that imports it.
 
 const VENDOR = new URL('../vendor/smaltdb/', import.meta.url).href;
 
@@ -28,7 +30,7 @@ export function setEngineSpec(spec) {
 }
 
 function baseFor(spec) {
-  if (!spec || spec === 'vendor') return { base: VENDOR, label: 'vendored build' };
+  if (!spec || spec === 'vendor') return { base: VENDOR, label: 'bundled npm package' };
   if (spec === 'npm' || spec.startsWith('npm@')) {
     const version = spec === 'npm' ? 'latest' : spec.slice(4);
     return { base: `https://cdn.jsdelivr.net/npm/smaltdb@${version}/dist/`, label: `npm smaltdb@${version}` };
@@ -39,17 +41,34 @@ function baseFor(spec) {
 
 /** Import the client module. Returns { open, version, label, workerUrl, spec }. */
 export async function loadEngine(spec = engineSpec()) {
-  const { base, label } = baseFor(spec);
-  const mod = await import(/* @vite-ignore */ base + 'smaltdb.js');
+  let { base, label } = baseFor(spec);
+  let mod;
+  try {
+    mod = await import(/* @vite-ignore */ base + 'smaltdb.js');
+  } catch (e) {
+    if (spec !== 'vendor') throw e;
+    console.warn('smaltui: vendor/smaltdb is missing (run `npm install`); loading smaltdb@latest from jsDelivr.', e);
+    spec = 'npm';
+    ({ base, label } = baseFor(spec));
+    label += ' (vendor/ missing)';
+    mod = await import(/* @vite-ignore */ base + 'smaltdb.js');
+  }
   let workerUrl = base + 'smaltdb-worker.js';
   if (new URL(workerUrl).origin !== location.origin) {
     const shim = `import ${JSON.stringify(workerUrl)};`;
     workerUrl = URL.createObjectURL(new Blob([shim], { type: 'text/javascript' }));
   }
+  // Version info: vendor/ has VERSION.json; an npm package has package.json next to dist/.
+  // (A custom URL may have neither; it is not probed, to avoid CORS noise.)
   let version = null;
   try {
-    const r = await fetch(base + 'VERSION.json', { cache: 'no-cache' });
-    if (r.ok) version = await r.json();
+    if (spec === 'vendor') {
+      const r = await fetch(base + 'VERSION.json', { cache: 'no-cache' });
+      if (r.ok) version = await r.json();
+    } else if (spec.startsWith('npm')) {
+      const r = await fetch(base + '../package.json');
+      if (r.ok) version = { source: 'npm', version: (await r.json()).version };
+    }
   } catch {}
   if (!version && spec.startsWith('npm')) version = { source: 'npm', version: spec.slice(4) || 'latest' };
   return {
