@@ -30,7 +30,9 @@ jobs:
       - run: npm ci   # postinstall copies node_modules/smaltdb/dist into vendor/smaltdb
       - name: Use another smaltdb version
         if: ${{ inputs.smaltdb_version != '' }}
-        run: npm install --no-save "smaltdb@${{ inputs.smaltdb_version }}"
+        run: |
+          npm install --no-save "smaltdb@${{ inputs.smaltdb_version }}"
+          npm run vendor   # re-copy the engine: vendor/ was filled from the pinned version by npm ci
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
