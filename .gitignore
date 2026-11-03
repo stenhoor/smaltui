@@ -3,3 +3,8 @@ node_modules/
 dist/
 # Generated from node_modules/smaltdb on `npm install` (scripts/vendor-smaltdb.mjs)
 vendor/
+# Compiled from app/*.ts and site/*.ts by scripts/compile.mjs
+app/*.js
+app/*.js.map
+site/*.js
+site/*.js.map

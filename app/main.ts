@@ -1,94 +1,120 @@
 // smaltui — a SQL console for smaltdb that runs entirely in the browser.
-import { loadEngine, engineSpec, setEngineSpec, opfsAvailable, listOpfsDatabases, deleteOpfsDatabase } from './engine.js';
-import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, quoteLiteral, tableNameFrom, formatSql, leadingKeyword } from './sql.js';
-import { Editor } from './editor.js';
-import { Grid, formatValue, plainValue, exportRows } from './grid.js';
+import { loadEngine, engineSpec, setEngineSpec, opfsAvailable, listOpfsDatabases, deleteOpfsDatabase, type ArrayResult, type Database, type Engine } from './engine.js';
+import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, quoteLiteral, tableNameFrom, formatSql, leadingKeyword, type ParamSlot, type SqlValue, type Statement } from './sql.js';
+import { Editor, type EditorSchema, type SchemaTable } from './editor.js';
+import { Grid, formatValue, plainValue, exportRows, type Column, type ExportFormat, type Row, type SortDir, type Value } from './grid.js';
 import { normalizeDataUrl, corsHint } from './urls.js';
 import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
-import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet } from './env.js';
+import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet, type DataFormat, type Manifest, type ReaderOptions } from './env.js';
 
 // ================================================================ helpers
 
-const $ = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
-const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-function h(html) {
+/**
+ * Query one element. The page's structure is fixed, so lookups of known elements are non-null. The default type
+ * covers form controls and links (.value, .checked, .disabled, .href); pass a type for anything more specific.
+ */
+const $ = <T extends Element = HTMLInputElement & HTMLAnchorElement>(sel: string, root: ParentNode = document): T => root.querySelector<T>(sel)!;
+const $$ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document): T[] => [...root.querySelectorAll<T>(sel)];
+const esc = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/** Build an element from HTML. */
+function h<T extends HTMLElement = HTMLElement>(html: string): T {
   const t = document.createElement('template');
   t.innerHTML = html.trim();
-  return t.content.firstElementChild;
+  return t.content.firstElementChild as T;
 }
-const fmtMs = (ms) => (ms < 1 ? '<1 ms' : ms < 1000 ? `${ms.toFixed(ms < 10 ? 1 : 0)} ms` : `${(ms / 1000).toFixed(2)} s`);
-const fmtBytes = (n) => (n === null || n === undefined ? '—' : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
-const fmtNum = (n) => (typeof n === 'number' ? n.toLocaleString() : String(n));
-const now = () => performance.now();
-const timeOfDay = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-const errText = (e) => {
-  const base = e?.code ? `${e.code}: ${e.message}` : String(e?.message ?? e);
+/** The nearest ancestor of an event's target matching `sel`. */
+const closest = <T extends Element = HTMLElement>(e: Event, sel: string): T | null => (e.target as Element | null)?.closest<T>(sel) ?? null;
+const fmtMs = (ms: number): string => (ms < 1 ? '<1 ms' : ms < 1000 ? `${ms.toFixed(ms < 10 ? 1 : 0)} ms` : `${(ms / 1000).toFixed(2)} s`);
+const fmtBytes = (n: number | null | undefined): string => (n === null || n === undefined ? '—' : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+const fmtNum = (n: unknown): string => (typeof n === 'number' ? n.toLocaleString() : String(n));
+const now = (): number => performance.now();
+const timeOfDay = (): string => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const errText = (e: unknown): string => {
+  const err = e as { code?: string; message?: string } | null | undefined;
+  const base = err?.code ? `${err.code}: ${err.message}` : String(err?.message ?? e);
   const hint = corsHint(base);
   return hint ? `${base}\n${hint}` : base;
 };
 
-function toast(text, kind = '') {
+function toast(text: string, kind = ''): void {
   const el = h(`<div class="toast ${kind}"></div>`);
   el.textContent = text;
   $('#toasts').appendChild(el);
   setTimeout(() => el.remove(), kind === 'err' ? 8000 : 3500);
 }
 
-function status(text, kind = '') {
+function status(text: string, kind = ''): void {
   const el = $('#stMsg');
   el.textContent = text;
   el.className = 'grow ' + kind;
 }
 
-/** Open a modal. `body` is HTML; buttons: [{ label, value, primary, danger }]. Resolves with the clicked value (or null). */
-function modal({ title, body, buttons = [{ label: 'Close', value: null }], onOpen, wide = false }) {
-  const dlg = $('#modal');
-  const inner = $('#modalInner');
+/** A modal's named form controls, by name (inputs, selects and textareas all have .value / .checked). */
+type FormFields = Record<string, HTMLInputElement>;
+
+interface ModalButton<T> {
+  label: string;
+  /** What the modal resolves with: a value, or a function of the form's fields. */
+  value: T | ((f: FormFields) => T);
+  primary?: boolean;
+  danger?: boolean;
+}
+
+interface ModalOptions<T> {
+  title: string;
+  body: string;
+  buttons?: ModalButton<T>[];
+  onOpen?: (form: HTMLFormElement, done: (v: T | null) => void) => void;
+  wide?: boolean;
+}
+
+/** Open a modal. `body` is HTML. Resolves with the clicked button's value (or null when dismissed). */
+function modal<T = unknown>({ title, body, buttons = [{ label: 'Close', value: null as T }], onOpen, wide = false }: ModalOptions<T>): Promise<T | null> {
+  const dlg = $<HTMLDialogElement>('#modal');
+  const inner = $<HTMLFormElement>('#modalInner');
   dlg.style.width = wide ? 'min(900px, calc(100vw - 32px))' : '';
   inner.innerHTML = `<div class="modal-head"><span>${esc(title)}</span><button type="button" class="icon" data-x aria-label="Close">✕</button></div>
     <div class="modal-body">${body}</div>
     <div class="modal-foot">${buttons.map((b, i) => `<button type="${b.primary ? 'submit' : 'button'}" data-i="${i}" class="${b.primary ? 'primary' : ''} ${b.danger ? 'danger' : ''}">${esc(b.label)}</button>`).join('')}</div>`;
-  return new Promise((resolve) => {
-    let result = null;
-    const done = (v) => {
+  const fields = (): FormFields => Object.fromEntries($$<HTMLInputElement>('[name]', inner).map((el) => [el.name, el]));
+  const valueOf = (b: ModalButton<T>): T => (typeof b.value === 'function' ? (b.value as (f: FormFields) => T)(fields()) : b.value);
+  return new Promise<T | null>((resolve) => {
+    let result: T | null = null;
+    const done = (v: T | null) => {
       result = v;
       dlg.close();
     };
     inner.onsubmit = (e) => {
       e.preventDefault();
       const b = buttons.find((x) => x.primary);
-      done(b ? (typeof b.value === 'function' ? b.value(inner) : b.value) : null);
+      done(b ? valueOf(b) : null);
     };
-    inner.querySelector('[data-x]').onclick = () => done(null);
-    inner.querySelectorAll('.modal-foot button[type=button]').forEach((btn) => {
-      btn.onclick = () => {
-        const b = buttons[Number(btn.dataset.i)];
-        done(typeof b.value === 'function' ? b.value(inner) : b.value);
-      };
+    $<HTMLButtonElement>('[data-x]', inner).onclick = () => done(null);
+    $$<HTMLButtonElement>('.modal-foot button[type=button]', inner).forEach((btn) => {
+      btn.onclick = () => done(valueOf(buttons[Number(btn.dataset.i!)]));
     });
     dlg.onclose = () => resolve(result);
     dlg.showModal();
     onOpen?.(inner, done);
-    const first = inner.querySelector('input, select, textarea');
-    (first ?? inner.querySelector('button.primary'))?.focus();
+    const first = inner.querySelector<HTMLElement>('input, select, textarea');
+    (first ?? inner.querySelector<HTMLElement>('button.primary'))?.focus();
   });
 }
 
-async function confirmBox(title, text, okLabel = 'OK', danger = false) {
-  return modal({ title, body: `<p>${text}</p>`, buttons: [{ label: 'Cancel', value: false }, { label: okLabel, value: true, primary: true, danger }] });
+async function confirmBox(title: string, text: string, okLabel = 'OK', danger = false): Promise<boolean> {
+  return (await modal<boolean>({ title, body: `<p>${text}</p>`, buttons: [{ label: 'Cancel', value: false }, { label: okLabel, value: true, primary: true, danger }] })) === true;
 }
 
-function showValue(value, title = 'Value') {
+function showValue(value: Value, title = 'Value'): void {
   let text = plainValue(value);
-  let note = value === null || value === undefined ? 'NULL' : value instanceof Uint8Array ? `BLOB, ${value.length} bytes` : typeof value === 'bigint' ? 'INTEGER (64-bit)' : typeof value;
+  let note: string = value === null || value === undefined ? 'NULL' : value instanceof Uint8Array ? `BLOB, ${value.length} bytes` : typeof value === 'bigint' ? 'INTEGER (64-bit)' : typeof value;
   if (typeof value === 'string' && /^\s*[[{]/.test(value)) {
     try {
       text = JSON.stringify(JSON.parse(value), null, 2);
       note += ' · JSON';
     } catch {}
   }
-  modal({
+  void modal<unknown>({
     title,
     body: `<p>${esc(note)}${typeof value === 'string' ? ` · ${value.length.toLocaleString()} chars` : ''}</p><pre class="value">${esc(text)}</pre>`,
     buttons: [{ label: 'Copy', value: () => navigator.clipboard?.writeText(text) }, { label: 'Close', value: null, primary: true }],
@@ -96,13 +122,15 @@ function showValue(value, title = 'Value') {
   });
 }
 
-function contextMenu(x, y, items) {
-  const m = $('#ctxMenu');
+type MenuItem = { label: string; run: () => void; danger?: boolean } | '-';
+
+function contextMenu(x: number, y: number, items: MenuItem[]): void {
+  const m = $<HTMLDivElement>('#ctxMenu');
   m.innerHTML = '';
   for (const it of items) {
     if (it === '-') m.appendChild(h('<hr>'));
     else {
-      const b = h(`<button type="button">${esc(it.label)}</button>`);
+      const b = h<HTMLButtonElement>(`<button type="button">${esc(it.label)}</button>`);
       if (it.danger) b.classList.add('danger');
       b.onclick = () => {
         m.hidden = true;
@@ -117,16 +145,16 @@ function contextMenu(x, y, items) {
   m.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
 }
 document.addEventListener('mousedown', (e) => {
-  if (!e.target.closest('#ctxMenu')) $('#ctxMenu').hidden = true;
-  if (!e.target.closest('.menu-wrap')) $('#moreMenu').hidden = true;
+  if (!closest(e, '#ctxMenu')) $<HTMLElement>('#ctxMenu').hidden = true;
+  if (!closest(e, '.menu-wrap')) $<HTMLElement>('#moreMenu').hidden = true;
 });
 
 /** Vertical/horizontal drag splitters. */
-function dragSplit(handle, onMove, onEnd) {
+function dragSplit(handle: HTMLElement, onMove: (ev: MouseEvent) => void, onEnd?: () => void): void {
   handle.addEventListener('mousedown', (e) => {
     e.preventDefault();
     handle.classList.add('drag');
-    const move = (ev) => onMove(ev);
+    const move = (ev: MouseEvent) => onMove(ev);
     const up = () => {
       handle.classList.remove('drag');
       window.removeEventListener('mousemove', move);
@@ -138,9 +166,194 @@ function dragSplit(handle, onMove, onEnd) {
   });
 }
 
+// ================================================================ types
+
+type Storage = 'opfs' | 'memory';
+type Row0 = Record<string, SqlValue>;
+
+/** The object explorer's view of the catalog. */
+interface Schema extends EditorSchema {
+  objects: { table_schema: string; table_name: string; table_type: string }[];
+  external: { table_name: string; location: string; format: string | null; connection_name: string | null }[];
+  connections?: { connection_name: string; url: string; credentials: string | null }[];
+}
+
+/** A registered file (`file:<name>` in SQL). */
+interface LinkedFile {
+  source?: Blob | FileSystemFileHandle;
+  handle?: FileSystemFileHandle | null;
+  state: 'ok' | 'needs-permission' | 'missing';
+  db?: string | null;
+}
+
+/** An open result cursor: it blocks this tab's writes until closed. */
+interface OpenCursor {
+  it: AsyncIterableIterator<ArrayResult>;
+  close(): Promise<void>;
+}
+
+type TabKind = 'query' | 'table' | 'import' | 'history' | 'welcome';
+
+interface TabBase {
+  id: number;
+  kind: TabKind;
+  title: string;
+  icon: string;
+  tooltip?: string;
+  el: HTMLElement;
+  objectName?: string;
+  busy?: boolean;
+  init?(): void;
+  onShow?(): void;
+  onSchema?(): void;
+  onDatabase?(): void;
+  dispose?(): void;
+}
+
+interface Message {
+  kind: 'ok' | 'err' | 'warn';
+  text: string;
+  sql: string;
+  at: string;
+}
+
+interface ResultSet {
+  columns: string[];
+  rows: Row[];
+  more: OpenCursor | null;
+  closed?: boolean;
+  sql: string;
+  ms?: number;
+}
+
+interface PlanResult {
+  sql: string;
+  rows: Row[];
+  columns: string[];
+  analyze?: boolean;
+}
+
+interface QueryTab extends TabBase {
+  kind: 'query';
+  sql: string;
+  editor: Editor;
+  results: ResultSet[];
+  messages: Message[];
+  binds: Record<string, { v: string; t: string }>;
+  plan: PlanResult | null;
+  errorAt: number | null;
+  grids: Grid[];
+  abort?: AbortController;
+  format(): void;
+  save(): void;
+  openFile(): Promise<void>;
+  stop(): void;
+  setBusy(b: boolean): void;
+  run(scope: 'statement' | 'script', mode?: 'run' | 'plan' | 'analyze'): Promise<void>;
+  markError(st: Statement, e: unknown): void;
+  askBinds(slots: ParamSlot[]): Promise<SqlValue[] | null>;
+  fetchResult(sql: string, params: SqlValue[] | undefined, signal: AbortSignal, keepOpen: boolean): Promise<ResultSet>;
+  fetchMore(res: ResultSet, all?: boolean): Promise<void>;
+  renderResults(view?: string): void;
+  refreshResultBar(): void;
+  fillBar(bar: HTMLElement, res: ResultSet, grid: Grid): void;
+}
+
+interface TableTab extends TabBase {
+  kind: 'table';
+  objectName: string;
+  kindName: string;
+  where: string;
+  sort: { col: string; dir: 'asc' | 'desc' } | null;
+  limit: number;
+  offset: number;
+  total: number | null;
+  rows: Row[];
+  columns: Column[];
+  view: string;
+  grid: Grid;
+  page(offset: number): void;
+  pkCols(): string[];
+  editable(): boolean;
+  selectSql(withPaging?: boolean): string;
+  load(recount?: boolean): Promise<void>;
+  updatePager(): void;
+  renderEditTools(): void;
+  keyOf(row: Row): { where: string; params: SqlValue[] };
+  editCell(r: number, c: number, value: string | null): Promise<void>;
+  deleteRow(): Promise<void>;
+  insertRow(): Promise<void>;
+  buildViews(): void;
+  showView(key: string): Promise<void>;
+}
+
+interface LinkSpec {
+  table: string;
+  location: string;
+  sql: string;
+  connection: string;
+  format: DataFormat | string | undefined;
+  options: ReaderOptions;
+}
+
+interface ImportTab extends TabBase {
+  kind: 'import';
+  source?: { blob: Blob; label: string };
+  previewGrid: Grid;
+  lsrc: 'url' | 'file';
+  lfile?: { file: File; handle: FileSystemFileHandle | null };
+  lfileName?: string;
+  lnameTouched?: boolean;
+  lsqlTouched?: boolean;
+  wireImport(): void;
+  setImportSource(blob: Blob, label: string): void;
+  syncImportMode(): void;
+  readerArgs(): { fmt: string; args: string[] };
+  previewImport(): Promise<void>;
+  importResult(text: string, err?: boolean): void;
+  doImport(): Promise<void>;
+  wireLink(): void;
+  linkSpec(): LinkSpec;
+  updateLinkSql(): void;
+  prepareLink(): Promise<void>;
+  previewLink(): Promise<void>;
+  createLink(): Promise<void>;
+  wireEnv(): void;
+}
+
+interface HistoryTab extends TabBase {
+  kind: 'history';
+  render(): void;
+}
+
+interface WelcomeTab extends TabBase {
+  kind: 'welcome';
+}
+
+type Tab = QueryTab | TableTab | ImportTab | HistoryTab | WelcomeTab;
+
+/** Placeholder for a tab field that its init() assigns before anything reads it. */
+const assignedInInit = <T,>(): T => undefined as T;
+
+/** A fresh tab pane; addTab() puts it on the page. */
+const blankPane = (): HTMLElement => h('<div class="pane" role="tabpanel"></div>');
+
 // ================================================================ state
 
-const app = {
+interface AppState {
+  engine: Engine | null;
+  db: Database | null;
+  dbName: string | null;
+  storage: Storage | null;
+  schema: Schema;
+  tabs: Tab[];
+  active: Tab | null;
+  files: Map<string, LinkedFile>;
+  streams: Set<OpenCursor>;
+  env: Manifest | null;
+}
+
+const app: AppState = {
   engine: null,
   db: null,
   dbName: null,
@@ -148,15 +361,19 @@ const app = {
   schema: { objects: [], tables: new Map(), names: new Set(), external: [] },
   tabs: [],
   active: null,
-  /** Registered files: name → { source, handle?, state: 'ok'|'needs-permission'|'missing' } */
   files: new Map(),
-  /** Open result streams (they block this tab's writes until closed). */
   streams: new Set(),
   env: null,
 };
-window.smaltui = app; // handy from the devtools console: smaltui.db.query(…)
+(window as unknown as { smaltui: AppState }).smaltui = app; // handy from the devtools console: smaltui.db.query(…)
 
-const OBJECT_KINDS = {
+/** The open database (callers run only once one is open). */
+const db = (): Database => {
+  if (!app.db) throw new Error('No database is open');
+  return app.db;
+};
+
+const OBJECT_KINDS: Record<string, { group: string; ico: string; kind: string }> = {
   'BASE TABLE': { group: 'Tables', ico: '▦', kind: 'table' },
   VIEW: { group: 'Views', ico: '◫', kind: 'view' },
   'MATERIALIZED VIEW': { group: 'Materialized views', ico: '◧', kind: 'matview' },
@@ -173,12 +390,12 @@ async function closeStreams() {
 }
 
 /** Run a write safely: open result cursors are closed first (they would make writes fail with SMALT_BUSY). */
-async function write(fn) {
+async function write<T>(fn: (db: Database) => Promise<T>): Promise<T> {
   await closeStreams();
-  return fn(app.db);
+  return fn(db());
 }
 
-async function openDatabase(name, storage = 'opfs', { quiet = false } = {}) {
+async function openDatabase(name: string, storage: Storage = 'opfs', { quiet = false }: { quiet?: boolean } = {}): Promise<void> {
   if (storage === 'opfs' && !opfsAvailable()) {
     toast('OPFS is not available here (it needs a secure context: https or localhost). Opening in memory instead.', 'err');
     storage = 'memory';
@@ -188,13 +405,13 @@ async function openDatabase(name, storage = 'opfs', { quiet = false } = {}) {
     await closeStreams();
     for (const t of [...app.tabs]) if (t.kind === 'table') closeTab(t, true);
     try {
-      await app.db.close();
+      await db().close();
     } catch {}
     app.db = null;
   }
   const t0 = now();
   try {
-    app.db = await app.engine.open(name, { storage });
+    app.db = await app.engine!.open(name, { storage });
   } catch (e) {
     setDbIndicator('off', name, storage);
     throw e;
@@ -215,7 +432,7 @@ async function openDatabase(name, storage = 'opfs', { quiet = false } = {}) {
   for (const t of app.tabs) t.onDatabase?.();
 }
 
-function setDbIndicator(state, name, storage) {
+function setDbIndicator(state: 'on' | 'busy' | 'off', name: string | null, storage: Storage | null): void {
   $('#dbDot').className = 'db-dot ' + (state === 'on' ? 'on' : state === 'busy' ? 'busy' : '');
   $('#dbName').textContent = name ?? 'no database';
   $('#dbStorage').textContent = storage ?? '';
@@ -225,7 +442,7 @@ function setDbIndicator(state, name, storage) {
 function updateModeStatus() {
   const parts = [];
   parts.push(crossOriginIsolated ? 'isolated · parallel readers' : 'not isolated');
-  if (app.db) parts.push(app.db.isLeader ? 'owner tab' : 'shared (another tab owns the engine)');
+  if (app.db) parts.push(db().isLeader ? 'owner tab' : 'shared (another tab owns the engine)');
   $('#stMode').textContent = parts.join(' · ');
 }
 
@@ -248,32 +465,32 @@ async function dbPicker() {
       <label class="field" style="flex:0 0 auto"><span>Storage</span>
         <select name="storage">${opfsAvailable() ? '<option value="opfs">OPFS (persistent)</option>' : ''}<option value="memory">Memory (discarded on reload)</option></select></label>
     </div>`;
-  const r = await modal({
+  const r = await modal<{ name: string; storage: Storage } | { del: string } | null>({
     title: 'Databases',
     body,
     buttons: [
       { label: 'Cancel', value: null },
-      { label: 'Open', primary: true, value: (f) => ({ name: f.dbname.value.trim(), storage: f.storage.value }) },
+      { label: 'Open', primary: true, value: (f) => ({ name: f.dbname.value.trim(), storage: f.storage.value as Storage }) },
     ],
     onOpen: (form, done) => {
-      form.querySelectorAll('[data-open]').forEach((b) => (b.onclick = () => done({ name: b.closest('.db-row').dataset.name, storage: 'opfs' })));
-      form.querySelectorAll('[data-del]').forEach(
+      $$('[data-open]', form).forEach((b) => (b.onclick = () => done({ name: b.closest<HTMLElement>('.db-row')!.dataset.name!, storage: 'opfs' })));
+      $$('[data-del]', form).forEach(
         (b) =>
           (b.onclick = async () => {
-            const name = b.closest('.db-row').dataset.name;
+            const name = b.closest<HTMLElement>('.db-row')!.dataset.name!;
             done({ del: name });
           }),
       );
     },
   });
   if (!r) return;
-  if (r.del) {
+  if ('del' in r) {
     if (await confirmBox('Delete database', `Delete <b>${esc(r.del)}</b> and all its data from this browser? This cannot be undone. Close it in other tabs first.`, 'Delete', true)) {
       try {
         await deleteOpfsDatabase(r.del);
         toast(`Deleted ${r.del}`, 'ok');
       } catch (e) {
-        toast(`Could not delete ${r.del}: ${e.message} (is it open in another tab?)`, 'err');
+        toast(`Could not delete ${r.del}: ${(e as Error).message} (is it open in another tab?)`, 'err');
       }
     }
     return dbPicker();
@@ -288,21 +505,21 @@ async function dbPicker() {
 
 // ================================================================ linked files
 
-async function restoreFiles() {
+async function restoreFiles(): Promise<void> {
   // Files registered with the previous Database object must be registered again.
-  const keep = new Map();
+  const keep = new Map<string, LinkedFile>();
   for (const [name, f] of app.files) if (f.source && f.db === app.dbName) keep.set(name, f);
   app.files = keep;
-  for (const [name, f] of app.files) await app.db.registerFile(name, f.source).catch(() => (f.state = 'missing'));
-  for (const { name, handle } of await loadFileHandles(app.dbName)) {
+  for (const [name, f] of app.files) if (f.source) await db().registerFile(name, f.source).catch(() => (f.state = 'missing'));
+  for (const { name, handle } of await loadFileHandles(app.dbName ?? '')) {
     if (app.files.get(name)?.state === 'ok') continue;
-    let perm = 'prompt';
+    let perm: PermissionState = 'prompt';
     try {
       perm = await handle.queryPermission({ mode: 'read' });
     } catch {}
     if (perm === 'granted') {
       try {
-        await app.db.registerFile(name, handle);
+        await db().registerFile(name, handle);
         app.files.set(name, { source: handle, handle, state: 'ok', db: app.dbName });
         continue;
       } catch {}
@@ -311,14 +528,14 @@ async function restoreFiles() {
   }
 }
 
-async function linkFile(name, source, handle = null) {
-  await app.db.registerFile(name, source);
+async function linkFile(name: string, source: Blob | FileSystemFileHandle, handle: FileSystemFileHandle | null = null): Promise<void> {
+  await db().registerFile(name, source);
   app.files.set(name, { source, handle, state: 'ok', db: app.dbName });
-  if (handle) await saveFileHandle(app.dbName, name, handle);
+  if (handle) await saveFileHandle(app.dbName ?? '', name, handle);
   renderLinkedFiles();
 }
 
-async function regrantFile(name) {
+async function regrantFile(name: string): Promise<void> {
   const f = app.files.get(name);
   if (f?.handle) {
     try {
@@ -337,19 +554,24 @@ async function regrantFile(name) {
   }
 }
 
+interface PickedFile {
+  file: File;
+  handle: FileSystemFileHandle | null;
+}
+
 /** Let the user choose a file: the File System Access picker (keeps a handle) or a plain input. */
-async function pickLocalFile(accept = '.csv,.tsv,.txt,.json,.ndjson,.jsonl,.parquet') {
+async function pickLocalFile(accept = '.csv,.tsv,.txt,.json,.ndjson,.jsonl,.parquet'): Promise<PickedFile | null> {
   if (window.showOpenFilePicker) {
     try {
       const [handle] = await window.showOpenFilePicker({ types: [{ description: 'Data files', accept: { 'application/octet-stream': accept.split(',') } }], excludeAcceptAllOption: false });
       return { handle, file: await handle.getFile() };
     } catch (e) {
-      if (e.name === 'AbortError') return null;
+      if ((e as Error).name === 'AbortError') return null;
     }
   }
-  return new Promise((resolve) => {
-    const input = h(`<input type="file" accept="${accept}" hidden>`);
-    input.onchange = () => resolve(input.files[0] ? { file: input.files[0], handle: null } : null);
+  return new Promise<PickedFile | null>((resolve) => {
+    const input = h<HTMLInputElement>(`<input type="file" accept="${accept}" hidden>`);
+    input.onchange = () => resolve(input.files?.[0] ? { file: input.files[0], handle: null } : null);
     input.oncancel = () => resolve(null);
     document.body.appendChild(input);
     input.click();
@@ -371,33 +593,34 @@ function renderLinkedFiles() {
     const st = f?.state === 'ok' ? '<span class="st ok">attached</span>' : f?.state === 'needs-permission' ? `<button class="icon st warn" data-regrant="${esc(n)}" title="Grant read access again">grant access</button>` : `<button class="icon st warn" data-regrant="${esc(n)}" title="Choose the file again">attach…</button>`;
     return `<div class="lf"><span>📄</span><span class="nm" title="file:${esc(n)}">${esc(n)}</span>${st}</div>`;
   }).join('');
-  el.querySelectorAll('[data-regrant]').forEach((b) => (b.onclick = () => regrantFile(b.dataset.regrant).catch((e) => toast(errText(e), 'err'))));
+  $$('[data-regrant]', el).forEach((b) => (b.onclick = () => regrantFile(b.dataset.regrant!).catch((e) => toast(errText(e), 'err'))));
 }
 
 // ================================================================ schema / object explorer
 
-async function refreshSchema() {
+async function refreshSchema(): Promise<void> {
   if (!app.db) return;
   const db = app.db;
+  type R = Record<string, string | null>;
   try {
     const [objects, columns, external, conns, pks] = await Promise.all([
-      db.query("SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema <> 'information_schema' ORDER BY table_name", [], { rowMode: 'object' }),
-      db.query("SELECT table_name, column_name, data_type, ordinal_position, is_nullable FROM information_schema.columns WHERE table_schema <> 'information_schema' ORDER BY table_name, ordinal_position", [], { rowMode: 'object' }),
-      db.query('SELECT table_name, location, format, connection_name FROM information_schema.external_tables', [], { rowMode: 'object' }).catch(() => []),
-      db.query('SELECT connection_name, url, credentials FROM information_schema.connections', [], { rowMode: 'object' }).catch(() => []),
-      db.query("SELECT k.table_name, k.column_name FROM information_schema.key_column_usage k JOIN information_schema.table_constraints c ON c.constraint_name = k.constraint_name AND c.table_name = k.table_name WHERE c.constraint_type = 'PRIMARY KEY'", [], { rowMode: 'object' }).catch(() => []),
+      db.query<Schema['objects'][number]>("SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema <> 'information_schema' ORDER BY table_name"),
+      db.query<R>("SELECT table_name, column_name, data_type, ordinal_position, is_nullable FROM information_schema.columns WHERE table_schema <> 'information_schema' ORDER BY table_name, ordinal_position"),
+      db.query<Schema['external'][number]>('SELECT table_name, location, format, connection_name FROM information_schema.external_tables').catch(() => [] as Schema['external']),
+      db.query<NonNullable<Schema['connections']>[number]>('SELECT connection_name, url, credentials FROM information_schema.connections').catch(() => [] as NonNullable<Schema['connections']>),
+      db.query<R>("SELECT k.table_name, k.column_name FROM information_schema.key_column_usage k JOIN information_schema.table_constraints c ON c.constraint_name = k.constraint_name AND c.table_name = k.table_name WHERE c.constraint_type = 'PRIMARY KEY'").catch(() => [] as R[]),
     ]);
     const pkSet = new Set(pks.map((p) => `${p.table_name}\u0000${p.column_name}`));
-    const tables = new Map();
+    const tables = new Map<string, SchemaTable>();
     for (const o of objects) {
-      const arr = [];
+      const arr: SchemaTable = [];
       arr.kind = OBJECT_KINDS[o.table_type]?.kind ?? 'table';
       arr.type = o.table_type;
       tables.set(o.table_name, arr);
     }
     for (const c of columns) {
-      const arr = tables.get(c.table_name);
-      if (arr) arr.push({ name: c.column_name, type: c.data_type, nullable: c.is_nullable === 'YES', pk: pkSet.has(`${c.table_name}\u0000${c.column_name}`) });
+      const arr = tables.get(c.table_name ?? '');
+      if (arr) arr.push({ name: c.column_name ?? '', type: c.data_type, nullable: c.is_nullable === 'YES', pk: pkSet.has(`${c.table_name}\u0000${c.column_name}`) });
     }
     app.schema = { objects, tables, names: new Set([...tables.keys()].map((n) => n.toLowerCase())), external, connections: conns };
   } catch (e) {
@@ -408,18 +631,18 @@ async function refreshSchema() {
   for (const t of app.tabs) t.onSchema?.();
 }
 
-const expanded = new Set(prefs.get('expanded', []));
-const collapsedGroups = new Set(prefs.get('collapsedGroups', []));
+const expanded = new Set<string>(prefs.get<string[]>('expanded', []));
+const collapsedGroups = new Set<string>(prefs.get<string[]>('collapsedGroups', []));
 
-function renderTree() {
+function renderTree(): void {
   const tree = $('#tree');
   const filter = $('#treeFilter').value.trim().toLowerCase();
-  const groups = new Map();
+  const groups = new Map<string, { name: string; cols: SchemaTable; kind: (typeof OBJECT_KINDS)[string] }[]>();
   for (const [name, cols] of app.schema.tables) {
-    const kind = OBJECT_KINDS[cols.type] ?? OBJECT_KINDS['BASE TABLE'];
+    const kind = OBJECT_KINDS[cols.type ?? ''] ?? OBJECT_KINDS['BASE TABLE'];
     if (filter && !name.toLowerCase().includes(filter) && !cols.some((c) => c.name.toLowerCase().includes(filter))) continue;
     if (!groups.has(kind.group)) groups.set(kind.group, []);
-    groups.get(kind.group).push({ name, cols, kind });
+    groups.get(kind.group)!.push({ name, cols, kind });
   }
   const order = ['Tables', 'Views', 'Materialized views', 'External tables', 'Temporary tables'];
   let html = '';
@@ -452,7 +675,7 @@ function renderTree() {
       : `<div class="tree-empty">This database is empty.<br>Create a table in a query tab, or <a href="#" data-goto-import>import a file</a>.</div>`;
   }
   tree.innerHTML = html;
-  tree.querySelector('[data-goto-import]')?.addEventListener('click', (e) => {
+  $('[data-goto-import]', tree)?.addEventListener('click', (e) => {
     e.preventDefault();
     openImportTab();
   });
@@ -461,18 +684,18 @@ function renderTree() {
 function wireTree() {
   const tree = $('#tree');
   tree.addEventListener('click', (e) => {
-    const label = e.target.closest('.tree-label');
+    const label = closest(e, '.tree-label');
     if (label) {
-      const g = label.parentElement.dataset.group;
+      const g = label.parentElement!.dataset.group!;
       collapsedGroups.has(g) ? collapsedGroups.delete(g) : collapsedGroups.add(g);
       prefs.set('collapsedGroups', [...collapsedGroups]);
       renderTree();
       return;
     }
-    const item = e.target.closest('[data-obj]');
+    const item = closest(e, '[data-obj]');
     if (item) {
-      const name = item.dataset.obj;
-      if (e.target.closest('[data-twisty]')) {
+      const name = item.dataset.obj!;
+      if (closest(e, '[data-twisty]')) {
         expanded.has(name) ? expanded.delete(name) : expanded.add(name);
         prefs.set('expanded', [...expanded]);
         renderTree();
@@ -480,42 +703,42 @@ function wireTree() {
       document.body.classList.remove('side-open');
       return;
     }
-    const col = e.target.closest('[data-col]');
-    if (col) insertIntoEditor(quoteIdent(col.dataset.col));
-    const conn = e.target.closest('[data-conn]');
+    const col = closest(e, '[data-col]');
+    if (col) insertIntoEditor(quoteIdent(col.dataset.col!));
+    const conn = closest(e, '[data-conn]');
     if (conn) {
-      const c = app.schema.connections.find((x) => x.connection_name === conn.dataset.conn);
-      showValue(`${c.url}${c.credentials ? `\ncredentials: ${c.credentials}` : ''}`, `Connection ${c.connection_name}`);
+      const c = app.schema.connections?.find((x) => x.connection_name === conn.dataset.conn!);
+      if (c) showValue(`${c.url}${c.credentials ? `\ncredentials: ${c.credentials}` : ''}`, `Connection ${c.connection_name}`);
     }
   });
   tree.addEventListener('dblclick', (e) => {
-    const item = e.target.closest('[data-obj]');
-    if (item && !e.target.closest('[data-twisty]')) insertIntoEditor(quoteIdent(item.dataset.obj));
+    const item = closest(e, '[data-obj]');
+    if (item && !closest(e, '[data-twisty]')) insertIntoEditor(quoteIdent(item.dataset.obj!));
   });
   tree.addEventListener('contextmenu', (e) => {
-    const item = e.target.closest('[data-obj]');
-    const conn = e.target.closest('[data-conn]');
+    const item = closest(e, '[data-obj]');
+    const conn = closest(e, '[data-conn]');
     if (!item && !conn) return;
     e.preventDefault();
     if (conn) {
-      const name = conn.dataset.conn;
+      const name = conn.dataset.conn!;
       contextMenu(e.clientX, e.clientY, [
         { label: 'Copy name', run: () => navigator.clipboard?.writeText(name) },
         { label: 'Script DROP CONNECTION', run: () => newQueryTab({ sql: `DROP CONNECTION ${quoteIdent(name)};\n` }) },
       ]);
       return;
     }
-    objectMenu(item.dataset.obj, e.clientX, e.clientY);
+    if (item) objectMenu(item.dataset.obj!, e.clientX, e.clientY);
   });
   $('#treeFilter').addEventListener('input', renderTree);
   $('#btnRefreshTree').onclick = () => refreshSchema();
 }
 
-function objectMenu(name, x, y) {
-  const cols = app.schema.tables.get(name) ?? [];
+function objectMenu(name: string, x: number, y: number): void {
+  const cols: SchemaTable = app.schema.tables.get(name) ?? [];
   const kind = cols.kind;
   const q = quoteIdent(name);
-  const items = [
+  const items: MenuItem[] = [
     { label: 'Open data', run: () => openTableTab(name) },
     { label: 'Query in new tab', run: () => newQueryTab({ sql: `SELECT *\nFROM ${q}\nLIMIT 100;\n`, run: true }) },
     { label: 'Insert name into editor', run: () => insertIntoEditor(q) },
@@ -533,7 +756,7 @@ function objectMenu(name, x, y) {
   items.push({ label: 'Export as CSV', run: () => exportObject(name, 'csv') });
   items.push({ label: 'Export as JSON', run: () => exportObject(name, 'json') });
   items.push('-');
-  const dropKw = { table: 'TABLE', view: 'VIEW', matview: 'MATERIALIZED VIEW', external: 'EXTERNAL TABLE', temp: 'TABLE' }[kind] ?? 'TABLE';
+  const dropKw = ({ table: 'TABLE', view: 'VIEW', matview: 'MATERIALIZED VIEW', external: 'EXTERNAL TABLE', temp: 'TABLE' } as Record<string, string>)[kind ?? ''] ?? 'TABLE';
   items.push({
     label: `Drop ${dropKw.toLowerCase()}…`,
     danger: true,
@@ -545,19 +768,20 @@ function objectMenu(name, x, y) {
   contextMenu(x, y, items);
 }
 
-async function ddlFor(name) {
-  const r = await app.db.query('SELECT sql FROM sqlite_schema WHERE name = ?', [name], { rowMode: 'array' });
-  return r[0]?.[0] ? formatDdl(r[0][0]) + ';' : `-- no DDL recorded for ${name}`;
+async function ddlFor(name: string): Promise<string> {
+  const r = await db().query('SELECT sql FROM sqlite_schema WHERE name = ?', [name], { rowMode: 'array' });
+  const sql = r[0]?.[0];
+  return typeof sql === 'string' && sql ? formatDdl(sql) + ';' : `-- no DDL recorded for ${name}`;
 }
 
-function formatDdl(sql) {
+function formatDdl(sql: string): string {
   // Put each column definition of CREATE TABLE on its own line.
   const m = /^(\s*CREATE\s+(?:TEMP\w*\s+|LOOSE\s+)?TABLE\s+[^(]+)\(([\s\S]*)\)([^)]*)$/i.exec(sql);
   if (!m || m[2].includes('\n')) return sql;
-  const parts = [];
+  const parts: string[] = [];
   let depth = 0;
   let cur = '';
-  let quote = null;
+  let quote: string | null = null;
   for (const ch of m[2]) {
     if (quote) {
       cur += ch;
@@ -576,26 +800,26 @@ function formatDdl(sql) {
   return `${m[1].trim()} (\n  ${parts.join(',\n  ')}\n)${m[3]}`;
 }
 
-async function countRows(name) {
+async function countRows(name: string): Promise<void> {
   try {
     const t0 = now();
-    const r = await app.db.query(`SELECT count(*) FROM ${quoteIdent(name)}`, [], { rowMode: 'array' });
+    const r = await db().query(`SELECT count(*) FROM ${quoteIdent(name)}`, [], { rowMode: 'array' });
     toast(`${name}: ${fmtNum(Number(r[0][0]))} rows (${fmtMs(now() - t0)})`, 'ok');
   } catch (e) {
     toast(errText(e), 'err');
   }
 }
 
-async function exportObject(name, format) {
+async function exportObject(name: string, format: 'csv' | 'json'): Promise<void> {
   try {
-    const text = format === 'csv' ? await app.db.exportCSV(`SELECT * FROM ${quoteIdent(name)}`) : await app.db.exportJSON(`SELECT * FROM ${quoteIdent(name)}`);
+    const text = format === 'csv' ? await db().exportCSV(`SELECT * FROM ${quoteIdent(name)}`) : await db().exportJSON(`SELECT * FROM ${quoteIdent(name)}`);
     download(`${name}.${format}`, text, format === 'csv' ? 'text/csv' : 'application/json');
   } catch (e) {
     toast(errText(e), 'err');
   }
 }
 
-async function runAdHoc(sql) {
+async function runAdHoc(sql: string): Promise<void> {
   try {
     const t0 = now();
     await write((db) => db.exec(sql));
@@ -611,9 +835,9 @@ async function runAdHoc(sql) {
 
 let tabSeq = 0;
 
-function addTab(tab) {
+/** Put a tab (made with its own pane, see blankPane) on the page and show it. */
+function addTab<T extends Tab>(tab: T): T {
   tab.id = ++tabSeq;
-  tab.el = h(`<div class="pane" role="tabpanel"></div>`);
   $('#panes').appendChild(tab.el);
   app.tabs.push(tab);
   tab.init?.();
@@ -622,7 +846,7 @@ function addTab(tab) {
   return tab;
 }
 
-function renderTabs() {
+function renderTabs(): void {
   const strip = $('#tabs');
   strip.innerHTML = '';
   for (const t of app.tabs) {
@@ -630,17 +854,17 @@ function renderTabs() {
       <span class="tab-ico">${t.icon}</span><span class="tab-title">${esc(t.title)}</span>${t.busy ? '<span class="busy-dot"></span>' : ''}
       <button class="tab-close" title="Close (Ctrl+W)" aria-label="Close tab">✕</button></div>`);
     el.onclick = (e) => {
-      if (e.target.closest('.tab-close')) closeTab(t);
+      if (closest(e, '.tab-close')) closeTab(t);
       else activateTab(t);
     };
     el.onauxclick = (e) => e.button === 1 && closeTab(t);
     el.ondblclick = (e) => {
-      if (t.kind === 'query' && !e.target.closest('.tab-close')) renameTab(t);
+      if (t.kind === 'query' && !closest(e, '.tab-close')) renameTab(t);
     };
-    el.ondragstart = (e) => e.dataTransfer.setData('text/x-tab', String(t.id));
+    el.ondragstart = (e) => e.dataTransfer?.setData('text/x-tab', String(t.id));
     el.ondragover = (e) => e.preventDefault();
     el.ondrop = (e) => {
-      const id = Number(e.dataTransfer.getData('text/x-tab'));
+      const id = Number(e.dataTransfer?.getData('text/x-tab'));
       const from = app.tabs.findIndex((x) => x.id === id);
       const to = app.tabs.indexOf(t);
       if (from < 0 || from === to) return;
@@ -656,16 +880,16 @@ function renderTabs() {
   strip.appendChild(plus);
 }
 
-function activateTab(t) {
+function activateTab(t: Tab): void {
   app.active = t;
   for (const x of app.tabs) x.el.classList.toggle('active', x === t);
   renderTabs();
   $('#tabs .tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   t.onShow?.();
-  $$('#tree .tree-item').forEach((el) => el.classList.toggle('active', el.dataset.obj === t.objectName));
+  $$('#tree .tree-item').forEach((el) => el.classList.toggle('active', el.dataset.obj! === t.objectName));
 }
 
-function closeTab(t, silent = false) {
+function closeTab(t: Tab, silent = false): void {
   const i = app.tabs.indexOf(t);
   if (i < 0) return;
   t.dispose?.();
@@ -681,8 +905,8 @@ function closeTab(t, silent = false) {
   saveQueryTabs();
 }
 
-async function renameTab(t) {
-  const name = await modal({
+async function renameTab(t: Tab): Promise<void> {
+  const name = await modal<string | null>({
     title: 'Rename tab',
     body: `<label class="field"><span>Title</span><input type="text" name="t" value="${esc(t.title)}"></label>`,
     buttons: [{ label: 'Cancel', value: null }, { label: 'Rename', primary: true, value: (f) => f.t.value.trim() }],
@@ -694,13 +918,13 @@ async function renameTab(t) {
   }
 }
 
-function saveQueryTabs() {
-  const tabs = app.tabs.filter((t) => t.kind === 'query').map((t) => ({ title: t.title, sql: t.editor?.value ?? t.sql ?? '' }));
+function saveQueryTabs(): void {
+  const tabs = app.tabs.filter((t): t is QueryTab => t.kind === 'query').map((t) => ({ title: t.title, sql: t.editor?.value ?? t.sql ?? '' }));
   prefs.set('queryTabs', tabs);
 }
 
-function insertIntoEditor(text) {
-  let t = app.active?.kind === 'query' ? app.active : [...app.tabs].reverse().find((x) => x.kind === 'query');
+function insertIntoEditor(text: string): void {
+  let t: QueryTab | undefined = app.active?.kind === 'query' ? app.active : [...app.tabs].reverse().find((x): x is QueryTab => x.kind === 'query');
   if (!t) t = newQueryTab();
   activateTab(t);
   t.editor.insert(text);
@@ -711,7 +935,7 @@ function insertIntoEditor(text) {
 let querySeq = 0;
 const FETCH_ROWS = 1000;
 
-function newQueryTab({ title, sql = '', run = false } = {}) {
+function newQueryTab({ title, sql = '', run = false }: { title?: string; sql?: string; run?: boolean } = {}): QueryTab {
   const tab = queryTab(title ?? `Query ${++querySeq}`, sql);
   addTab(tab);
   saveQueryTabs();
@@ -720,15 +944,21 @@ function newQueryTab({ title, sql = '', run = false } = {}) {
   return tab;
 }
 
-function queryTab(title, sql) {
-  const tab = {
+function queryTab(title: string, sql: string): QueryTab {
+  const tab: QueryTab = {
+    id: 0,
+    el: blankPane(),
     kind: 'query',
     title,
     icon: '⌨',
     sql,
+    editor: assignedInInit<Editor>(),
     results: [],
     messages: [],
     binds: {},
+    plan: null,
+    errorAt: null,
+    grids: [],
     busy: false,
     init() {
       const el = this.el;
@@ -860,18 +1090,19 @@ function queryTab(title, sql) {
         if (mode === 'plan') sql = 'EXPLAIN QUERY PLAN ' + sql;
         if (mode === 'analyze') sql = 'EXPLAIN ANALYZE ' + sql;
         const slots = scanParams(st.sql);
-        let params;
+        let params: SqlValue[] | undefined;
         if (slots.length) {
-          params = await this.askBinds(slots);
-          if (params === null) {
+          const values = await this.askBinds(slots);
+          if (values === null) {
             this.messages.push({ kind: 'warn', text: 'Cancelled (no bind values)', sql: st.sql, at: timeOfDay() });
             break;
           }
+          params = values;
         }
         const t0 = now();
         try {
           if (mode === 'plan') {
-            const r = await app.db.query(sql, params, { rowMode: 'array', signal });
+            const r = await db().query(sql, params, { rowMode: 'array', signal });
             this.plan = { sql: st.sql, rows: r, columns: r.columns };
             this.messages.push({ kind: 'ok', text: `Plan ready (${fmtMs(now() - t0)})`, sql: st.sql, at: timeOfDay() });
           } else if (returnsRows(sql)) {
@@ -895,7 +1126,7 @@ function queryTab(title, sql) {
           this.messages.push({ kind: 'err', text: errText(e), sql: st.sql, at: timeOfDay() });
           addHistory({ sql: st.sql, db: app.dbName, at: Date.now(), error: errText(e) });
           this.markError(st, e);
-          if (!continueOnError || e.code === 'SMALT_INTERRUPT') break;
+          if (!continueOnError || (e as { code?: string }).code === 'SMALT_INTERRUPT') break;
         }
       }
       const total = now() - scriptT0;
@@ -908,7 +1139,7 @@ function queryTab(title, sql) {
       if (schemaChanged) refreshSchema();
     },
     markError(st, e) {
-      const m = /line (\d+), column (\d+)/.exec(e?.message ?? '');
+      const m = /line (\d+), column (\d+)/.exec((e as Error | null)?.message ?? '');
       let start = st.start;
       let end = st.end;
       if (m) {
@@ -943,7 +1174,7 @@ function queryTab(title, sql) {
             label: 'Run',
             primary: true,
             value: (f) => {
-              const vals = [];
+              const vals: SqlValue[] = [];
               slots.forEach((s, i) => {
                 const v = f[`v${i}`].value;
                 const t = f[`t${i}`].value;
@@ -957,8 +1188,9 @@ function queryTab(title, sql) {
       });
     },
     async fetchResult(sql, params, signal, keepOpen) {
-      const it = app.db.stream(sql, params, { rowMode: 'array', signal, batchSize: 500 });
-      const res = { columns: null, rows: [], more: null, sql };
+      const it = db().stream(sql, params, { rowMode: 'array', signal, batchSize: 500 });
+      const res: ResultSet = { columns: [], rows: [], more: null, sql };
+      let gotColumns = false;
       let done = false;
       while (res.rows.length < FETCH_ROWS) {
         const n = await it.next();
@@ -966,12 +1198,15 @@ function queryTab(title, sql) {
           done = true;
           break;
         }
-        res.columns ??= n.value.columns;
+        if (!gotColumns) {
+          res.columns = n.value.columns;
+          gotColumns = true;
+        }
         for (const r of n.value) res.rows.push(r);
       }
-      if (!res.columns) {
+      if (!gotColumns) {
         try {
-          const st = await app.db.prepare(sql);
+          const st = await db().prepare(sql);
           res.columns = st.columns ?? [];
           await st.finalize();
         } catch {
@@ -980,7 +1215,7 @@ function queryTab(title, sql) {
       }
       if (!done) {
         if (keepOpen) {
-          const cursor = {
+          const cursor: OpenCursor = {
             it,
             close: async () => {
               res.more = null;
@@ -1031,7 +1266,7 @@ function queryTab(title, sql) {
       tabsEl.innerHTML = '';
       panes.innerHTML = '';
       this.grids = [];
-      const views = [];
+      const views: { key: string; label: string; badge?: string; err?: boolean; build: (pane: HTMLElement) => void }[] = [];
       this.results.slice(0, 20).forEach((res, i) => {
         views.push({
           key: 'r' + i,
@@ -1067,7 +1302,7 @@ function queryTab(title, sql) {
           key: 'plan',
           label: this.plan.analyze ? 'Analyze' : 'Plan',
           build: (pane) => {
-            const p = this.plan;
+            const p = this.plan!;
             const cols = p.columns ?? [];
             if (cols.includes('detail') && cols.includes('parent') && !p.analyze) {
               const box = h('<div class="plan"></div>');
@@ -1089,9 +1324,9 @@ function queryTab(title, sql) {
         panes.appendChild(pane);
         b.onclick = () => show(v.key);
       }
-      const show = (key) => {
-        $$('.subtab', tabsEl).forEach((x) => x.classList.toggle('active', x.dataset.view === key));
-        $$('.subpane', panes).forEach((x) => x.classList.toggle('active', x.dataset.pane === key));
+      const show = (key: string) => {
+        $$('.subtab', tabsEl).forEach((x) => x.classList.toggle('active', x.dataset.view! === key));
+        $$('.subpane', panes).forEach((x) => x.classList.toggle('active', x.dataset.pane! === key));
         this.grids.forEach((g) => g.renderRows(true));
       };
       show(views.some((v) => v.key === view) ? view : views[0].key);
@@ -1111,20 +1346,20 @@ function queryTab(title, sql) {
         <button data-copy title="Copy as tab-separated text (paste into a spreadsheet)">Copy</button>
         <button data-x="csv">CSV</button><button data-x="json">JSON</button><button data-x="sql" title="INSERT statements">SQL</button>
         <button data-totable title="Save the fetched rows as a new table">Save as table…</button>`;
-      bar.querySelector('[data-more]')?.addEventListener('click', () => this.fetchMore(res));
-      bar.querySelector('[data-all]')?.addEventListener('click', () => this.fetchMore(res, true));
-      bar.querySelector('[data-copy]').onclick = () => {
+      $('[data-more]', bar)?.addEventListener('click', () => this.fetchMore(res));
+      $('[data-all]', bar)?.addEventListener('click', () => this.fetchMore(res, true));
+      $('[data-copy]', bar).onclick = () => {
         navigator.clipboard?.writeText(exportRows('tsv', res.columns, grid.viewRows()));
         toast('Copied ' + fmtNum(res.rows.length) + ' rows');
       };
-      bar.querySelectorAll('[data-x]').forEach(
+      $$('[data-x]', bar).forEach(
         (b) =>
           (b.onclick = () => {
-            const f = b.dataset.x;
-            download(`result.${f}`, exportRows(f, res.columns, grid.viewRows(), 'result'), f === 'json' ? 'application/json' : f === 'csv' ? 'text/csv' : 'text/plain');
+            const f = b.dataset.x!;
+            download(`result.${f}`, exportRows(f as ExportFormat, res.columns, grid.viewRows(), 'result'), f === 'json' ? 'application/json' : f === 'csv' ? 'text/csv' : 'text/plain');
           }),
       );
-      bar.querySelector('[data-totable]').onclick = () => saveResultAsTable(res, grid);
+      $('[data-totable]', bar).onclick = () => saveResultAsTable(res, grid);
     },
     dispose() {
       this.abort?.abort();
@@ -1133,7 +1368,8 @@ function queryTab(title, sql) {
   return tab;
 }
 
-function coerce(v, t) {
+/** A bind value from its text and chosen type ('auto' guesses numbers; empty is NULL). */
+function coerce(v: string, t: string): SqlValue {
   if (t === 'null') return null;
   if (t === 'text') return v;
   if (t === 'integer') return /^-?\d+$/.test(v.trim()) && !Number.isSafeInteger(Number(v)) ? BigInt(v.trim()) : Math.trunc(Number(v));
@@ -1147,20 +1383,20 @@ function coerce(v, t) {
   return v;
 }
 
-function planTree(rows, cols) {
+function planTree(rows: Row[], cols: string[]): string {
   const id = cols.indexOf('id');
   const parent = cols.indexOf('parent');
   const detail = cols.indexOf('detail');
-  const children = new Map();
+  const children = new Map<Value, Row[]>();
   for (const r of rows) {
     const p = r[parent];
     if (!children.has(p)) children.set(p, []);
-    children.get(p).push(r);
+    children.get(p)!.push(r);
   }
   const ids = new Set(rows.map((r) => r[id]));
   const roots = rows.filter((r) => !ids.has(r[parent]));
   let out = 'QUERY PLAN\n';
-  const walk = (r, prefix, last) => {
+  const walk = (r: Row, prefix: string, last: boolean): void => {
     out += `${prefix}${last ? '└── ' : '├── '}${r[detail]}\n`;
     const kids = children.get(r[id]) ?? [];
     kids.forEach((k, i) => walk(k, prefix + (last ? '    ' : '│   '), i === kids.length - 1));
@@ -1169,7 +1405,7 @@ function planTree(rows, cols) {
   return out;
 }
 
-async function saveResultAsTable(res, grid) {
+async function saveResultAsTable(res: ResultSet, grid: Grid): Promise<void> {
   const name = await modal({
     title: 'Save result as table',
     body: `<p>Creates a table from the ${fmtNum(res.rows.length)} fetched rows (column types are inferred).</p><label class="field"><span>Table name</span><input type="text" name="n" value="result_${Date.now().toString(36).slice(-4)}"></label>`,
@@ -1178,7 +1414,7 @@ async function saveResultAsTable(res, grid) {
   if (!name) return;
   try {
     const cols = res.columns.map((c, i) => (res.columns.indexOf(c) !== i ? `${c}_${i + 1}` : c));
-    const data = grid.viewRows().map((r) => Object.fromEntries(cols.map((c, i) => [c, typeof r[i] === 'bigint' ? r[i].toString() : r[i] instanceof Uint8Array ? null : r[i]])));
+    const data = grid.viewRows().map((r) => Object.fromEntries(cols.map((c, i) => { const v = r[i]; return [c, typeof v === 'bigint' ? v.toString() : v instanceof Uint8Array ? null : v]; })));
     const r = await write((db) => db.importJSON(name, JSON.stringify(data), { create: true }));
     toast(`Created ${name} with ${fmtNum(r.rows)} rows`, 'ok');
     await refreshSchema();
@@ -1187,9 +1423,9 @@ async function saveResultAsTable(res, grid) {
   }
 }
 
-function debounce(fn, ms) {
-  let t;
-  return (...a) => {
+function debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number): (...a: A) => void {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  return (...a: A) => {
     clearTimeout(t);
     t = setTimeout(() => fn(...a), ms);
   };
@@ -1197,21 +1433,25 @@ function debounce(fn, ms) {
 
 // ================================================================ table viewer tab
 
-function openTableTab(name) {
+function openTableTab(name: string): void {
   const existing = app.tabs.find((t) => t.kind === 'table' && t.objectName === name);
   if (existing) return activateTab(existing);
   addTab(tableTab(name));
 }
 
-function tableTab(name) {
-  const tab = {
+function tableTab(name: string): TableTab {
+  const tab: TableTab = {
+    id: 0,
+    el: blankPane(),
     kind: 'table',
     objectName: name,
+    kindName: 'table',
     title: name,
     icon: '▦',
+    grid: assignedInInit<Grid>(),
     where: '',
     sort: null,
-    limit: prefs.get('pageSize', 200),
+    limit: prefs.get<number>('pageSize', 200),
     offset: 0,
     total: null,
     rows: [],
@@ -1219,7 +1459,7 @@ function tableTab(name) {
     view: 'data',
     init() {
       const cols = app.schema.tables.get(name);
-      this.icon = OBJECT_KINDS[cols?.type]?.ico ?? '▦';
+      this.icon = OBJECT_KINDS[cols?.type ?? '']?.ico ?? '▦';
       this.kindName = cols?.kind ?? 'table';
       this.tooltip = `${name} (${(cols?.type ?? 'table').toLowerCase()})`;
       this.el.innerHTML = `
@@ -1252,7 +1492,7 @@ function tableTab(name) {
       $('[data-next]', el).onclick = () => this.page(this.offset + this.limit);
       $('[data-last]', el).onclick = () => this.total !== null && this.page(Math.max(0, Math.floor((this.total - 1) / this.limit) * this.limit));
       $('[data-limit]', el).onchange = (e) => {
-        this.limit = Number(e.target.value);
+        this.limit = Number((e.target as HTMLSelectElement).value);
         prefs.set('pageSize', this.limit);
         this.offset = 0;
         this.load();
@@ -1294,7 +1534,7 @@ function tableTab(name) {
       const t0 = now();
       const sql = this.selectSql() + ' LIMIT ? OFFSET ?';
       try {
-        const r = await app.db.query(sql, [this.limit, this.offset], { rowMode: 'array' });
+        const r = await db().query(sql, [this.limit, this.offset], { rowMode: 'array' });
         const meta = app.schema.tables.get(name) ?? [];
         this.columns = r.columns.map((c) => {
           const m = meta.find((x) => x.name === c);
@@ -1304,14 +1544,15 @@ function tableTab(name) {
         const ms = now() - t0;
         if ((recount || this.total === null) && this.kindName !== 'external') {
           try {
-            const c = await app.db.query(`SELECT count(*) FROM ${quoteIdent(name)}${this.where ? ` WHERE ${this.where}` : ''}`, [], { rowMode: 'array' });
+            const c = await db().query(`SELECT count(*) FROM ${quoteIdent(name)}${this.where ? ` WHERE ${this.where}` : ''}`, [], { rowMode: 'array' });
             this.total = Number(c[0][0]);
           } catch {
             this.total = null;
           }
         } else if (this.kindName === 'external') this.total = r.length < this.limit ? this.offset + r.length : null;
-        const colIdx = this.sort ? this.columns.findIndex((c) => c.name === this.sort.col) : -1;
-        this.grid.setData(this.columns, this.rows, { serverSort: colIdx >= 0 ? { col: colIdx, dir: this.sort.dir } : null });
+        const sort = this.sort;
+        const colIdx = sort ? this.columns.findIndex((c) => c.name === sort.col) : -1;
+        this.grid.setData(this.columns, this.rows, { serverSort: sort && colIdx >= 0 ? { col: colIdx, dir: sort.dir } : null });
         this.updatePager();
         status(`${name}: rows ${fmtNum(this.offset + (r.length ? 1 : 0))}–${fmtNum(this.offset + r.length)}${this.total !== null ? ' of ' + fmtNum(this.total) : ''} in ${fmtMs(ms)}`);
         this.renderEditTools();
@@ -1350,7 +1591,7 @@ function tableTab(name) {
     },
     keyOf(row) {
       const pk = this.pkCols();
-      return { where: pk.map((c) => `${quoteIdent(c)} = ?`).join(' AND '), params: pk.map((c) => row[this.columns.findIndex((x) => x.name === c)]) };
+      return { where: pk.map((c) => `${quoteIdent(c)} = ?`).join(' AND '), params: pk.map((c) => row[this.columns.findIndex((x) => x.name === c)] ?? null) };
     },
     async editCell(r, c, value) {
       const col = this.columns[c];
@@ -1364,7 +1605,7 @@ function tableTab(name) {
         if (res.changes !== 1) toast(`${res.changes} rows changed`, 'err');
         // Re-read the row to show stored (converted) values.
         const k2 = col.pk ? { where: k.where, params: this.pkCols().map((p) => (p === col.name ? v : k.params[this.pkCols().indexOf(p)])) } : k;
-        const fresh = await app.db.query(`SELECT * FROM ${quoteIdent(name)} WHERE ${k2.where}`, k2.params, { rowMode: 'array' });
+        const fresh = await db().query(`SELECT * FROM ${quoteIdent(name)} WHERE ${k2.where}`, k2.params, { rowMode: 'array' });
         if (fresh[0]) this.rows[r] = fresh[0];
         status(`Updated ${name}.${col.name}`);
       } catch (e) {
@@ -1387,14 +1628,14 @@ function tableTab(name) {
     async insertRow() {
       const meta = app.schema.tables.get(name) ?? [];
       const body = `<p>Leave a field empty to use the column default (or NULL).</p>` + meta.map((c, i) => `<label class="field"><span>${esc(c.name)} <span class="mono" style="color:var(--faint)">${esc(c.type ?? '')}${c.pk ? ' · primary key' : ''}${c.nullable ? '' : ' · not null'}</span></span><input type="text" name="c${i}"></label>`).join('');
-      const vals = await modal({
+      const vals = await modal<string[] | null>({
         title: `Insert into ${name}`,
         body,
         buttons: [{ label: 'Cancel', value: null }, { label: 'Insert', primary: true, value: (f) => meta.map((c, i) => f[`c${i}`].value) }],
       });
       if (!vals) return;
-      const cols = [];
-      const params = [];
+      const cols: string[] = [];
+      const params: SqlValue[] = [];
       meta.forEach((c, i) => {
         if (vals[i] === '') return;
         cols.push(quoteIdent(c.name));
@@ -1444,13 +1685,13 @@ function tableTab(name) {
     },
     async showView(key) {
       this.view = key;
-      $$('.subtab', this.el).forEach((x) => x.classList.toggle('active', x.dataset.view === key));
-      $$('.subpane', this.el).forEach((x) => x.classList.toggle('active', x.dataset.pane === key));
+      $$('.subtab', this.el).forEach((x) => x.classList.toggle('active', x.dataset.view! === key));
+      $$('.subpane', this.el).forEach((x) => x.classList.toggle('active', x.dataset.pane! === key));
       const pane = $(`[data-pane="${key}"]`, this.el);
       if (key === 'data') return this.grid.renderRows(true);
       pane.innerHTML = '';
-      const q = (sql, p = []) => app.db.query(sql, p, { rowMode: 'array' });
-      const gridOf = (r) => {
+      const q = (sql: string, p: SqlValue[] = []) => db().query(sql, p, { rowMode: 'array' });
+      const gridOf = (r: ArrayResult) => {
         const gh = h('<div class="grid"></div>');
         pane.appendChild(gh);
         new Grid(gh, { emptyText: 'None' }).setData(r.columns, r);
@@ -1464,17 +1705,17 @@ function tableTab(name) {
           pre.innerHTML = (await import('./sql.js')).highlight(await ddlFor(name), app.schema.names);
           pane.appendChild(pre);
         } else if (key === 'source') {
-          const r = await app.db.query('SELECT * FROM information_schema.external_tables WHERE table_name = ?', [name], { rowMode: 'object' });
+          const r = await db().query('SELECT * FROM information_schema.external_tables WHERE table_name = ?', [name], { rowMode: 'object' });
           const x = r[0] ?? {};
           pane.appendChild(h(`<dl class="kv">${Object.entries(x).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v ?? '—')}</dd>`).join('')}</dl>`));
           pane.appendChild(h(`<p class="hint" style="padding:0 16px;color:var(--muted)">External tables read their source on every query. For fast repeat reads, cache it: <code>CREATE MATERIALIZED VIEW ${esc(name)}_cache AS SELECT * FROM ${esc(quoteIdent(name))}</code></p>`));
         } else if (key === 'refresh') {
-          const r = await app.db.query('SELECT * FROM information_schema.materialized_views WHERE table_name = ?', [name], { rowMode: 'object' });
+          const r = await db().query('SELECT * FROM information_schema.materialized_views WHERE table_name = ?', [name], { rowMode: 'object' });
           const x = r[0] ?? {};
           pane.appendChild(h(`<dl class="kv">${Object.entries(x).filter(([k]) => k !== 'view_definition').map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v ?? '—')}</dd>`).join('')}</dl>`));
           const b = h('<div class="actions" style="padding:0 16px"><button data-r>Refresh now</button><button data-rc>Refresh concurrently</button><button data-ri title="Only when a source changed">Refresh if changed</button></div>');
           pane.appendChild(b);
-          const go = async (sfx) => {
+          const go = async (sfx: '' | 'c' | 'i') => {
             await runAdHoc(`REFRESH MATERIALIZED VIEW ${sfx === 'c' ? 'CONCURRENTLY ' : ''}${quoteIdent(name)}${sfx === 'i' ? ' IF CHANGED' : ''}`);
             this.showView('refresh');
             this.load(true);
@@ -1491,7 +1732,8 @@ function tableTab(name) {
   return tab;
 }
 
-function coerceForType(value, type) {
+/** A cell value typed for its column: integers and reals become numbers, anything else stays text. */
+function coerceForType(value: string, type: string | null | undefined): SqlValue {
   const t = String(type ?? '').toUpperCase();
   const s = String(value).trim();
   if (/INT/.test(t) && /^-?\d+$/.test(s)) return Number.isSafeInteger(Number(s)) ? Number(s) : BigInt(s);
@@ -1501,19 +1743,23 @@ function coerceForType(value, type) {
 
 // ================================================================ import tab
 
-function openImportTab(section) {
-  let t = app.tabs.find((x) => x.kind === 'import');
+function openImportTab(section?: string): ImportTab {
+  let t = app.tabs.find((x): x is ImportTab => x.kind === 'import');
   if (!t) t = addTab(importTab());
   else activateTab(t);
-  if (section) t.el.querySelector(`[data-card="${section}"]`)?.scrollIntoView({ behavior: 'smooth' });
+  if (section) $(`[data-card="${section}"]`, t.el)?.scrollIntoView({ behavior: 'smooth' });
   return t;
 }
 
-function importTab() {
-  const tab = {
+function importTab(): ImportTab {
+  const tab: ImportTab = {
+    id: 0,
+    el: blankPane(),
     kind: 'import',
     title: 'Import',
     icon: '⇣',
+    previewGrid: assignedInInit<Grid>(),
+    lsrc: 'url',
     init() {
       this.el.innerHTML = `
       <div class="scroll-page">
@@ -1591,7 +1837,7 @@ function importTab() {
       this.wireImport();
       this.wireLink();
       this.wireEnv();
-      this.onSchema();
+      this.onSchema?.();
     },
     onSchema() {
       const dl = $('#smaltui-tables', this.el);
@@ -1599,20 +1845,20 @@ function importTab() {
       const sel = $('[data-lconn]', this.el);
       const cur = sel.value;
       sel.innerHTML = `<option value="">none</option>${(app.schema.connections ?? []).map((c) => `<option value="${esc(c.connection_name)}">${esc(c.connection_name)}</option>`).join('')}<option value="__new">new connection…</option>`;
-      if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+      if ([...(sel as unknown as HTMLSelectElement).options].some((o) => o.value === cur)) sel.value = cur;
     },
     onDatabase() {
-      this.onSchema();
+      this.onSchema?.();
     },
     // -------------------------------------------------- import
     wireImport() {
       const el = this.el;
       const seg = $('[data-src-seg]', el);
       seg.onclick = (e) => {
-        const b = e.target.closest('[data-src]');
+        const b = closest(e, '[data-src]');
         if (!b) return;
         $$('button', seg).forEach((x) => x.classList.toggle('on', x === b));
-        for (const k of ['file', 'url', 'paste']) $(`[data-src-${k}]`, el).hidden = k !== b.dataset.src;
+        for (const k of ['file', 'url', 'paste']) $(`[data-src-${k}]`, el).hidden = k !== b.dataset.src!;
       };
       const drop = $('[data-drop]', el);
       drop.onclick = async () => {
@@ -1628,7 +1874,7 @@ function importTab() {
       drop.ondrop = (e) => {
         e.preventDefault();
         drop.classList.remove('over');
-        const f = e.dataTransfer.files[0];
+        const f = e.dataTransfer?.files[0];
         if (f) this.setImportSource(f, f.name);
       };
       $('[data-fetch]', el).onclick = async () => {
@@ -1641,7 +1887,7 @@ function importTab() {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           this.setImportSource(await r.blob(), url);
         } catch (e) {
-          this.importResult(`Could not fetch ${url}: ${e.message}.\n${corsHint('CORS ' + url)}`, true);
+          this.importResult(`Could not fetch ${url}: ${(e as Error).message}.\n${corsHint('CORS ' + url)}`, true);
         }
       };
       $('[data-use-paste]', el).onclick = () => {
@@ -1710,8 +1956,8 @@ function importTab() {
           const text = await blob.slice(0, 262144).text();
           blob = new Blob([text.slice(0, text.lastIndexOf('\n') + 1)]);
         }
-        await app.db.registerFile('__preview', blob);
-        const r = await app.db.query(`SELECT * FROM ${fn}('file:__preview'${args.length ? ', ' + args.join(', ') : ''}) LIMIT 100`, [], { rowMode: 'array' });
+        await db().registerFile('__preview', blob);
+        const r = await db().query(`SELECT * FROM ${fn}('file:__preview'${args.length ? ', ' + args.join(', ') : ''}) LIMIT 100`, [], { rowMode: 'array' });
         const types = r.columns.map((_, i) => {
           const seen = new Set(r.map((row) => (row[i] === null ? null : typeof row[i] === 'number' ? (Number.isInteger(row[i]) ? 'INTEGER' : 'REAL') : typeof row[i] === 'bigint' ? 'INTEGER' : 'TEXT')));
           seen.delete(null);
@@ -1724,7 +1970,7 @@ function importTab() {
         this.previewGrid.empty.textContent = errText(e);
         this.previewGrid.empty.style.display = '';
       } finally {
-        app.db.registerFile('__preview', null).catch(() => {});
+        db().registerFile('__preview', null).catch(() => {});
       }
     },
     importResult(text, err = false) {
@@ -1745,14 +1991,15 @@ function importTab() {
       btn.disabled = true;
       try {
         let r;
-        if (fmt === 'parquet') r = await write((db) => importParquet(db, table, this.source.blob));
-        else if (fmt === 'json' || fmt === 'ndjson') r = await write((db) => db.importJSON(table, this.source.blob, { create: mode === 'new' }));
+        const blob = this.source!.blob;
+        if (fmt === 'parquet') r = await write((db) => importParquet(db, table, blob));
+        else if (fmt === 'json' || fmt === 'ndjson') r = await write((db) => db.importJSON(table, blob, { create: mode === 'new' }));
         else {
           const delimiter = $('[data-delim]', el).value.replace('\\t', '\t') || (fmt === 'tsv' ? '\t' : ',');
-          r = await write((db) => db.importCSV(table, this.source.blob, { create: mode === 'new', header: $('[data-header]', el).checked, delimiter, emptyAsNull: $('[data-emptynull]', el).checked }));
+          r = await write((db) => db.importCSV(table, blob, { create: mode === 'new', header: $('[data-header]', el).checked, delimiter, emptyAsNull: $('[data-emptynull]', el).checked }));
         }
         this.importResult(`Imported ${fmtNum(r.rows)} rows into ${table} in ${fmtMs(now() - t0)}.`);
-        addHistory({ sql: `-- import ${this.source.label} → ${table} (${r.rows} rows)`, db: app.dbName, at: Date.now() });
+        addHistory({ sql: `-- import ${this.source!.label} → ${table} (${r.rows} rows)`, db: app.dbName, at: Date.now() });
         await refreshSchema();
         const b = h(`<button style="margin-top:8px">Open ${esc(table)}</button>`);
         b.onclick = () => openTableTab(table);
@@ -1769,9 +2016,9 @@ function importTab() {
       const seg = $('[data-lsrc-seg]', el);
       this.lsrc = 'url';
       seg.onclick = (e) => {
-        const b = e.target.closest('[data-lsrc]');
+        const b = closest(e, '[data-lsrc]');
         if (!b) return;
-        this.lsrc = b.dataset.lsrc;
+        this.lsrc = b.dataset.lsrc as 'url' | 'file';
         $$('button', seg).forEach((x) => x.classList.toggle('on', x === b));
         $('[data-lsrc-url]', el).hidden = this.lsrc !== 'url';
         $('[data-lsrc-file]', el).hidden = this.lsrc !== 'file';
@@ -1814,7 +2061,7 @@ function importTab() {
     },
     linkSpec() {
       const el = this.el;
-      const val = (s) => $(s, el).value.trim();
+      const val = (s: string) => $(s, el).value.trim();
       const table = val('[data-lname]') || 'linked';
       const norm = normalizeDataUrl(val('[data-lurl]'));
       $('[data-lurl-note]', el).textContent = this.lsrc === 'url' ? norm.note : '';
@@ -1826,7 +2073,7 @@ function importTab() {
         const credName = val('[data-chead]') ? `${connection}_credentials` : '';
         connSql = `CREATE CONNECTION ${quoteIdent(connection)} WITH (url = ${quoteLiteral(val('[data-curl]'))}${credName ? `, credentials = ${quoteLiteral(credName)}` : ''});\n`;
       }
-      const options = {};
+      const options: ReaderOptions = {};
       if (!$('[data-lheader]', el).checked) options.header = false;
       if (val('[data-ldelim]')) options.delimiter = val('[data-ldelim]').replace('\\t', '\t');
       if (val('[data-lnull]')) options.null = val('[data-lnull]');
@@ -1847,11 +2094,11 @@ function importTab() {
       const el = this.el;
       if (this.lsrc === 'file') {
         if (!this.lfile) throw new Error('Choose a file first');
-        await linkFile(this.lfileName, this.lfile.handle ?? this.lfile.file, this.lfile.handle);
+        await linkFile(this.lfileName!, this.lfile.handle ?? this.lfile.file, this.lfile.handle);
       }
       if ($('[data-lconn]', el).value === '__new' && $('[data-chead]', el).value.trim()) {
         const connection = $('[data-cname]', el).value.trim() || 'api';
-        await app.db.registerCredentials(`${connection}_credentials`, { endpoint: $('[data-curl]', el).value.trim(), headers: { [$('[data-chead]', el).value.trim()]: $('[data-cval]', el).value } });
+        await db().registerCredentials(`${connection}_credentials`, { endpoint: $('[data-curl]', el).value.trim(), headers: { [$('[data-chead]', el).value.trim()]: $('[data-cval]', el).value } });
       }
     },
     async previewLink() {
@@ -1874,7 +2121,7 @@ function importTab() {
         const fmt = spec.format ?? formatFromName(loc);
         const fn = fmt === 'parquet' ? 'read_parquet' : fmt === 'json' || fmt === 'ndjson' ? 'read_json' : 'read_csv';
         const args = Object.entries({ ...spec.options, ...(fn === 'read_json' ? { format: fmt } : fmt === 'tsv' && !spec.options.delimiter ? { delimiter: '\t' } : {}) }).map(([k, v]) => `${k} => ${typeof v === 'string' ? quoteLiteral(v) : v}`);
-        const r = await app.db.query(`SELECT * FROM ${fn}(${quoteLiteral(loc)}${args.length ? ', ' + args.join(', ') : ''}) LIMIT 100`, [], { rowMode: 'array' });
+        const r = await db().query(`SELECT * FROM ${fn}(${quoteLiteral(loc)}${args.length ? ', ' + args.join(', ') : ''}) LIMIT 100`, [], { rowMode: 'array' });
         g.setData(r.columns, r);
       } catch (e) {
         g.setData([], []);
@@ -1906,7 +2153,7 @@ function importTab() {
     wireEnv() {
       const el = this.el;
       const out = $('[data-env-result]', el);
-      const say = (t, err) => (out.innerHTML = `<div class="${err ? 'inline-err' : 'inline-ok'}">${esc(t)}</div>`);
+      const say = (t: string, err = false) => (out.innerHTML = `<div class="${err ? 'inline-err' : 'inline-ok'}">${esc(t)}</div>`);
       $('[data-env-load]', el).onclick = async () => {
         const url = $('[data-env-url]', el).value.trim();
         if (!url) return;
@@ -1934,8 +2181,8 @@ function importTab() {
         .then((list) => {
           if (!list.length) return;
           const box = $('[data-env-list]', el);
-          box.innerHTML = `<div class="db-list">${list.map((e) => `<div class="db-row"><div><div class="nm">${esc(e.name)}</div><div class="meta">${esc(e.description ?? '')}</div></div><span class="acts"><button type="button" data-env="${esc(e.path)}">Open</button></span></div>`).join('')}</div>`;
-          box.querySelectorAll('[data-env]').forEach((b) => (b.onclick = () => loadEnvironment(new URL(b.dataset.env, new URL('../envs/', import.meta.url)).href, { force: true }).catch((e) => say(errText(e), true))));
+          box.innerHTML = `<div class="db-list">${list.map((e: { name: string; path: string; description?: string }) => `<div class="db-row"><div><div class="nm">${esc(e.name)}</div><div class="meta">${esc(e.description ?? '')}</div></div><span class="acts"><button type="button" data-env="${esc(e.path)}">Open</button></span></div>`).join('')}</div>`;
+          $$('[data-env]', box).forEach((b) => (b.onclick = () => loadEnvironment(new URL(b.dataset.env!, new URL('../envs/', import.meta.url)).href, { force: true }).catch((e) => say(errText(e), true))));
         })
         .catch(() => {});
     },
@@ -1945,8 +2192,8 @@ function importTab() {
 
 // ================================================================ environments
 
-async function loadEnvironment(url, { manifest = null, force = false } = {}) {
-  const m = manifest ?? (await fetchManifest(url));
+async function loadEnvironment(url: string | null, { manifest = null, force = false }: { manifest?: Manifest | null; force?: boolean } = {}): Promise<void> {
+  const m = manifest ?? (await fetchManifest(url ?? ''));
   const dbName = m.database?.name ?? 'env';
   const storage = m.database?.storage === 'opfs' && opfsAvailable() ? 'opfs' : 'memory';
   const key = manifestKey(m);
@@ -1958,7 +2205,7 @@ async function loadEnvironment(url, { manifest = null, force = false } = {}) {
     else if (exists && (m.init === 'always' || force)) {
       if (app.db && app.dbName === dbName && app.storage === 'opfs') {
         await closeStreams();
-        await app.db.close();
+        await db().close();
         app.db = null;
       }
       await deleteOpfsDatabase(dbName).catch(() => {});
@@ -1966,7 +2213,7 @@ async function loadEnvironment(url, { manifest = null, force = false } = {}) {
   }
   if (storage === 'memory' && app.db && app.dbName === dbName && app.storage === 'memory') {
     await closeStreams();
-    await app.db.close();
+    await db().close();
     app.db = null;
   }
   status(`Loading environment ${m.name ?? dbName}…`);
@@ -1974,7 +2221,7 @@ async function loadEnvironment(url, { manifest = null, force = false } = {}) {
   if (fresh) {
     const log = [];
     try {
-      await applyManifest(app.db, m, (lvl, text) => {
+      await applyManifest(db(), m, (lvl, text) => {
         log.push(text);
         status(text);
       });
@@ -1998,9 +2245,9 @@ async function loadEnvironment(url, { manifest = null, force = false } = {}) {
   toast(`Environment “${m.name ?? dbName}” ready`, 'ok');
 }
 
-async function exportEnvironmentDialog() {
+async function exportEnvironmentDialog(): Promise<void> {
   if (!app.db) return;
-  const r = await modal({
+  const r = await modal<'sql' | { data: boolean; queries: boolean; name: string } | null>({
     title: 'Export database',
     body: `<p>Save <b>${esc(app.dbName)}</b> as an environment manifest: its schema, the rows of local tables (as JSON), external tables and connections (by reference, never credentials), and your open query tabs. Serve the file with smaltui and open <code>?env=&lt;path&gt;</code> to recreate it anywhere.</p>
       <div class="checks"><label><input type="checkbox" name="data" checked> Include table data</label><label><input type="checkbox" name="queries" checked> Include query tabs</label></div>
@@ -2010,8 +2257,8 @@ async function exportEnvironmentDialog() {
   if (!r) return;
   try {
     if (r === 'sql') return download(`${app.dbName}.sql`, await exportSqlDump(app.db), 'application/sql');
-    const queries = r.queries ? app.tabs.filter((t) => t.kind === 'query' && t.editor.value.trim()).map((t) => ({ title: t.title, sql: t.editor.value })) : [];
-    const m = await exportManifest(app.db, { name: r.name, dbName: app.dbName, includeData: r.data, queries });
+    const queries = r.queries ? app.tabs.filter((t): t is QueryTab => t.kind === 'query' && !!t.editor.value.trim()).map((t) => ({ title: t.title, sql: t.editor.value })) : [];
+    const m = await exportManifest(db(), { name: r.name, dbName: app.dbName ?? 'smaltui', includeData: r.data, queries });
     download(`${app.dbName}.env.json`, JSON.stringify(m, null, 2), 'application/json');
   } catch (e) {
     toast(errText(e), 'err');
@@ -2020,14 +2267,16 @@ async function exportEnvironmentDialog() {
 
 // ================================================================ history tab
 
-function openHistoryTab() {
-  const t = app.tabs.find((x) => x.kind === 'history');
+function openHistoryTab(): void {
+  const t = app.tabs.find((x): x is HistoryTab => x.kind === 'history');
   if (t) {
     activateTab(t);
     t.render();
     return;
   }
-  addTab({
+  addTab<HistoryTab>({
+    id: 0,
+    el: blankPane(),
     kind: 'history',
     title: 'History',
     icon: '⟲',
@@ -2057,20 +2306,20 @@ function openHistoryTab() {
             .map(
               (x, i) => `<div class="hist" data-i="${i}"><pre>${esc(x.sql)}</pre>
               <div class="acts"><button data-ins title="Insert into the current editor">Insert</button><button data-new title="Open in a new tab">Open</button></div>
-              <div class="meta"><span>${new Date(x.at).toLocaleString()}</span><span>${esc(x.db ?? '')}</span>${x.ms !== undefined ? `<span>${fmtMs(x.ms)}</span>` : ''}${x.runs > 1 ? `<span>×${x.runs}</span>` : ''}${x.error ? `<span class="err">${esc(x.error)}</span>` : ''}</div></div>`,
+              <div class="meta"><span>${new Date(x.at).toLocaleString()}</span><span>${esc(x.db ?? '')}</span>${x.ms !== undefined ? `<span>${fmtMs(x.ms)}</span>` : ''}${(x.runs ?? 1) > 1 ? `<span>×${x.runs}</span>` : ''}${x.error ? `<span class="err">${esc(x.error)}</span>` : ''}</div></div>`,
             )
             .join('')
         : '<div class="placeholder">No history yet.</div>';
       list.onclick = (e) => {
-        const row = e.target.closest('.hist');
+        const row = closest(e, '.hist');
         if (!row) return;
-        const x = items[Number(row.dataset.i)];
-        if (e.target.closest('[data-new]')) newQueryTab({ sql: x.sql + '\n' });
-        else if (e.target.closest('[data-ins]')) insertIntoEditor(x.sql);
+        const x = items[Number(row.dataset.i!)];
+        if (closest(e, '[data-new]')) newQueryTab({ sql: x.sql + '\n' });
+        else if (closest(e, '[data-ins]')) insertIntoEditor(x.sql);
       };
       list.ondblclick = (e) => {
-        const row = e.target.closest('.hist');
-        if (row) newQueryTab({ sql: items[Number(row.dataset.i)].sql + '\n' });
+        const row = closest(e, '.hist');
+        if (row) newQueryTab({ sql: items[Number(row.dataset.i!)].sql + '\n' });
       };
     },
   });
@@ -2078,8 +2327,10 @@ function openHistoryTab() {
 
 // ================================================================ welcome tab
 
-function welcomeTab() {
+function welcomeTab(): WelcomeTab {
   return {
+    id: 0,
+    el: blankPane(),
     kind: 'welcome',
     title: 'Welcome',
     icon: '★',
@@ -2098,10 +2349,10 @@ function welcomeTab() {
         </div>
         <p class="lead" style="font-size:12px">Engine: ${esc(app.engine?.label ?? '—')}${v?.version ? ` · smaltdb ${esc(v.version)}` : ''}${v?.source === 'checkout' && v.commit ? ` @ <code>${esc(v.commit.slice(0, 10))}</code>` : ''}. Shortcuts: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> run script · <kbd>Ctrl</kbd>+<kbd>E</kbd> explain · <kbd>Ctrl</kbd>+<kbd>Space</kbd> complete.</p>
       </div></div>`;
-      this.el.querySelector('.quick').onclick = (e) => {
-        const b = e.target.closest('[data-q]');
+      $('.quick', this.el).onclick = (e) => {
+        const b = closest(e, '[data-q]');
         if (!b) return;
-        const q = b.dataset.q;
+        const q = b.dataset.q!;
         if (q === 'query') newQueryTab();
         else if (q === 'import') openImportTab('import');
         else if (q === 'link') openImportTab('link');
@@ -2157,8 +2408,8 @@ function shortcutsDialog() {
   modal({ title: 'Keyboard shortcuts', body: `<dl class="shortcuts">${rows.map(([k, v]) => `<dt>${k.split(' / ').map((x) => x.split('+').map((p) => `<kbd>${esc(p)}</kbd>`).join('+')).join(' / ')}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` });
 }
 
-function aboutDialog() {
-  const v = app.engine?.version ?? {};
+function aboutDialog(): void {
+  const v: Partial<NonNullable<Engine['version']>> = app.engine?.version ?? {};
   modal({
     title: 'About smaltui',
     body: `<p>smaltui is a SQL console for <a href="https://smaltdb.dev" target="_blank" rel="noopener">smaltdb</a> that runs entirely in the browser. It is a static site: serve the folder from any static host, and every visitor gets their own databases in their own browser.</p>
@@ -2166,7 +2417,7 @@ function aboutDialog() {
       ${v.commit ? `<dt>smaltdb commit</dt><dd>${esc(v.commit)}</dd>` : ''}${v.version ? `<dt>smaltdb version</dt><dd>${esc(v.version)}</dd>` : ''}
       <dt>Cross-origin isolated</dt><dd>${crossOriginIsolated ? 'yes (parallel readers, interruptible statements)' : 'no — serve with COOP/COEP headers for parallel readers'}</dd>
       <dt>OPFS</dt><dd>${opfsAvailable() ? 'available' : 'not available'}</dd>
-      <dt>Database</dt><dd>${esc(app.dbName ?? '—')} (${esc(app.storage ?? '')}${app.db ? (app.db.isLeader ? ', owner tab' : ', shared with another tab') : ''})</dd></dl>`,
+      <dt>Database</dt><dd>${esc(app.dbName ?? '—')} (${esc(app.storage ?? '')}${app.db ? (db().isLeader ? ', owner tab' : ', shared with another tab') : ''})</dd></dl>`,
   });
 }
 
@@ -2184,12 +2435,12 @@ function wireChrome() {
   $('#btnHistory').onclick = () => openHistoryTab();
   $('#btnMore').onclick = () => ($('#moreMenu').hidden = !$('#moreMenu').hidden);
   $('#moreMenu').onclick = (e) => {
-    const b = e.target.closest('[data-act]');
+    const b = closest(e, '[data-act]');
     if (!b) return;
     $('#moreMenu').hidden = true;
-    const act = b.dataset.act;
+    const act = b.dataset.act!;
     if (act === 'export-env') exportEnvironmentDialog();
-    else if (act === 'export-sql') exportSqlDump(app.db).then((s) => download(`${app.dbName}.sql`, s, 'application/sql')).catch((err) => toast(errText(err), 'err'));
+    else if (act === 'export-sql') exportSqlDump(db()).then((s) => download(`${app.dbName}.sql`, s, 'application/sql')).catch((err) => toast(errText(err), 'err'));
     else if (act === 'load-env') openImportTab('env');
     else if (act === 'engine') engineDialog();
     else if (act === 'theme') toggleTheme();
@@ -2219,7 +2470,7 @@ function wireChrome() {
       if (app.active) closeTab(app.active);
     } else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       e.preventDefault();
-      const i = app.tabs.indexOf(app.active);
+      const i = app.active ? app.tabs.indexOf(app.active) : -1;
       const next = app.tabs[(i + (e.key === 'ArrowRight' ? 1 : app.tabs.length - 1)) % app.tabs.length];
       if (next) activateTab(next);
     } else if (e.key === 'F5' && app.active?.kind === 'table') {
@@ -2240,11 +2491,11 @@ async function init() {
     $('#stEngine').textContent = `smaltdb ${v?.version ?? ''}${v?.source === 'checkout' && v.commit ? ' @ ' + v.commit.slice(0, 8) : ''} · ${app.engine.label}`;
   } catch (e) {
     $('#stEngine').textContent = 'engine failed to load';
-    $('#panes').innerHTML = `<div class="placeholder"><h3>The smaltdb engine could not be loaded</h3>${esc(e.message)}<br><br>Run <code>npm install</code> to copy it into <code>vendor/smaltdb/</code>, or choose another source with <code>?engine=npm</code> or <code>?engine=&lt;url&gt;</code>.</div>`;
+    $('#panes').innerHTML = `<div class="placeholder"><h3>The smaltdb engine could not be loaded</h3>${esc((e as Error).message)}<br><br>Run <code>npm install</code> to copy it into <code>vendor/smaltdb/</code>, or choose another source with <code>?engine=npm</code> or <code>?engine=&lt;url&gt;</code>.</div>`;
     return;
   }
   // Restore query tabs.
-  const saved = prefs.get('queryTabs', []);
+  const saved = prefs.get<{ title: string; sql: string }[]>('queryTabs', []);
   for (const q of saved) {
     const n = /^Query (\d+)$/.exec(q.title);
     if (n) querySeq = Math.max(querySeq, Number(n[1]));
@@ -2255,9 +2506,9 @@ async function init() {
       for (const q of saved) addTab(queryTab(q.title, q.sql));
       await loadEnvironment(envUrl);
     } else {
-      const last = prefs.get('lastDb', null);
+      const last = prefs.get<{ name: string; storage: Storage } | null>('lastDb', null);
       const name = params.get('db') ?? last?.name ?? 'scratch';
-      const storage = params.get('storage') ?? (params.get('db') ? 'opfs' : last?.storage ?? 'opfs');
+      const storage = (params.get('storage') ?? (params.get('db') ? 'opfs' : last?.storage ?? 'opfs')) as Storage;
       await openDatabase(name, storage);
       if (!saved.length) addTab(welcomeTab());
       for (const q of saved) addTab(queryTab(q.title, q.sql));
@@ -2281,7 +2532,7 @@ async function init() {
     const url = new URL(location.href);
     url.searchParams.delete('sql');
     history.replaceState(null, '', url);
-    const existing = app.tabs.find((t) => t.kind === 'query' && t.editor?.value.trim() === shared.trim());
+    const existing = app.tabs.find((t): t is QueryTab => t.kind === 'query' && t.editor?.value.trim() === shared.trim());
     if (existing) {
       activateTab(existing);
       existing.run('script');

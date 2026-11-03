@@ -290,7 +290,7 @@ try {
         if (!refs.length || bare.length) throw new Error(`${f}: unversioned ${JSON.stringify(bare)}`);
       }
       const mainJs = readFileSync(join(out, 'smaltui/workbench/app/main.js'), 'utf8');
-      if (/from\s*'\.\/[a-z]+\.js'/.test(mainJs)) throw new Error('main.js has unversioned imports');
+      if (/from\s*["']\.\/[a-z]+\.js["']/.test(mainJs)) throw new Error('main.js has unversioned imports');
       await page.locator('.example', { hasText: 'Parquet file' }).click();
       await page.waitForFunction(() => document.querySelectorAll('#gridHost tbody tr[data-row]').length === 3, null, { timeout: 10000 });
       const href = await page.locator('#openInWb').getAttribute('href');

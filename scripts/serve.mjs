@@ -18,6 +18,8 @@ const root = resolve(args.find((a, i) => !a.startsWith('--') && !(args[i - 1] ??
 const port = Number(opt('--port', process.env.PORT ?? 8080));
 const isolate = !flag('--no-isolation');
 const gzip = flag('--gzip');
+// --watch (npm run dev): recompile the TypeScript sources on change while serving.
+if (flag('--watch')) await (await import('./compile.mjs')).compile({ watch: true });
 const types = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',

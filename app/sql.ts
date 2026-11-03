@@ -25,11 +25,38 @@ export const FUNCTIONS = new Set(
  * Tokenize SQL. Every character belongs to exactly one token, so tokens concatenate back to the input.
  * Types: ws, comment, string, ident (quoted identifier), word, number, param, op, punct.
  */
-export function tokenize(text) {
-  const out = [];
+export type TokenType = 'ws' | 'comment' | 'string' | 'ident' | 'word' | 'number' | 'param' | 'op' | 'punct';
+
+export interface Token {
+  type: TokenType;
+  start: number;
+  end: number;
+  text: string;
+}
+
+/** A statement in a script: its text and its offsets in the script. */
+export interface Statement {
+  sql: string;
+  start: number;
+  end: number;
+}
+
+/** A bind parameter slot, numbered as the engine numbers them. */
+export interface ParamSlot {
+  label: string;
+  index: number;
+}
+
+import type { SqlValue } from 'smaltdb';
+
+/** A SQL value as smaltdb returns or accepts it. */
+export type { SqlValue };
+
+export function tokenize(text: string): Token[] {
+  const out: Token[] = [];
   const n = text.length;
   let i = 0;
-  const push = (type, start, end) => out.push({ type, start, end, text: text.slice(start, end) });
+  const push = (type: TokenType, start: number, end: number) => out.push({ type, start, end, text: text.slice(start, end) });
   while (i < n) {
     const c = text[i];
     const start = i;
@@ -110,10 +137,10 @@ export function tokenize(text) {
   return out;
 }
 
-const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** HTML for the editor's highlight layer. `names` is an optional Set of lower-cased object names. */
-export function highlight(text, names) {
+export function highlight(text: string, names?: Set<string>): string {
   let html = '';
   const toks = tokenize(text);
   for (let k = 0; k < toks.length; k++) {
@@ -156,9 +183,9 @@ export function highlight(text, names) {
 }
 
 /** Split a script into statements: [{ sql, start, end }] (offsets into `text`, trimmed of whitespace/semicolon). */
-export function splitStatements(text) {
+export function splitStatements(text: string): Statement[] {
   const toks = tokenize(text);
-  const out = [];
+  const out: Statement[] = [];
   let start = -1;
   let end = -1;
   let depthBeginEnd = 0;
@@ -190,18 +217,18 @@ export function splitStatements(text) {
 }
 
 /** The statement containing (or just before) offset `pos`. */
-export function statementAt(text, pos) {
+export function statementAt(text: string, pos: number): Statement | null {
   const stmts = splitStatements(text);
   if (stmts.length === 0) return null;
   for (const s of stmts) if (pos >= s.start && pos <= s.end) return s;
   // Between statements: pick the nearest one before the cursor (the one just typed), else the next.
-  let best = null;
+  let best: Statement | null = null;
   for (const s of stmts) if (s.end <= pos) best = s;
   return best ?? stmts[0];
 }
 
 /** First significant keyword of a statement, upper-cased. */
-export function leadingKeyword(sql) {
+export function leadingKeyword(sql: string): string {
   for (const t of tokenize(sql)) {
     if (t.type === 'ws' || t.type === 'comment' || (t.type === 'punct' && t.text === '(')) continue;
     return t.type === 'word' ? t.text.toUpperCase() : '';
@@ -210,7 +237,7 @@ export function leadingKeyword(sql) {
 }
 
 /** Whether a statement produces rows (and should be streamed into a grid rather than run with exec). */
-export function returnsRows(sql) {
+export function returnsRows(sql: string): boolean {
   const kw = leadingKeyword(sql);
   if (['SELECT', 'WITH', 'VALUES', 'EXPLAIN', 'PRAGMA', 'TABLE'].includes(kw)) {
     if (kw === 'WITH') {
@@ -226,7 +253,7 @@ export function returnsRows(sql) {
 }
 
 /** Whether a statement changes the schema (the object explorer should refresh). */
-export function changesSchema(sql) {
+export function changesSchema(sql: string): boolean {
   return ['CREATE', 'DROP', 'ALTER', 'REFRESH'].includes(leadingKeyword(sql));
 }
 
@@ -234,9 +261,9 @@ export function changesSchema(sql) {
  * Parameter slots in the order the engine numbers them: `?` takes the next number, `?N` is explicit,
  * and a name (`:a`, `@a`, `$a`) takes the next number on first use.
  */
-export function scanParams(sql) {
-  const slots = [];
-  const named = new Map();
+export function scanParams(sql: string): ParamSlot[] {
+  const slots: ParamSlot[] = [];
+  const named = new Map<string, number>();
   let n = 0;
   for (const t of tokenize(sql)) {
     if (t.type !== 'param') continue;
@@ -258,12 +285,12 @@ export function scanParams(sql) {
 }
 
 /** Quote an identifier when needed. */
-export function quoteIdent(name) {
+export function quoteIdent(name: string): string {
   if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !KEYWORDS.has(name.toUpperCase())) return name;
   return '"' + String(name).replace(/"/g, '""') + '"';
 }
 
-export function quoteLiteral(v) {
+export function quoteLiteral(v: SqlValue | boolean | undefined): string {
   if (v === null || v === undefined) return 'NULL';
   if (typeof v === 'number' || typeof v === 'bigint') return String(v);
   if (typeof v === 'boolean') return v ? '1' : '0';
@@ -272,7 +299,7 @@ export function quoteLiteral(v) {
 }
 
 /** A safe table name derived from a file name or URL. */
-export function tableNameFrom(source) {
+export function tableNameFrom(source: string): string {
   let base = String(source).split(/[\\/?#]/).filter(Boolean).pop() ?? 'data';
   base = base.replace(/\.(csv|tsv|txt|json|ndjson|jsonl|parquet)(\.gz)?$/i, '');
   base = base.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
@@ -282,7 +309,7 @@ export function tableNameFrom(source) {
 }
 
 /** Identifier-ish word immediately before offset `pos` (for completion). */
-export function wordBefore(text, pos) {
+export function wordBefore(text: string, pos: number): { word: string; start: number; qualifier: string | null } {
   let i = pos;
   while (i > 0 && /[A-Za-z0-9_$]/.test(text[i - 1])) i--;
   const word = text.slice(i, pos);
@@ -296,8 +323,8 @@ export function wordBefore(text, pos) {
 }
 
 /** Table aliases in a statement: Map alias(lower) → table name. */
-export function aliasesIn(sql, tableNames) {
-  const map = new Map();
+export function aliasesIn(sql: string, tableNames: Set<string>): Map<string, string> {
+  const map = new Map<string, string>();
   const toks = tokenize(sql).filter((t) => t.type !== 'ws' && t.type !== 'comment');
   for (let k = 0; k < toks.length; k++) {
     const t = toks[k];
@@ -312,14 +339,14 @@ export function aliasesIn(sql, tableNames) {
   return map;
 }
 
-export function unquote(s) {
+export function unquote(s: string): string {
   if (s.length >= 2 && (s[0] === '"' || s[0] === '`')) return s.slice(1, -1).replace(new RegExp(s[0] + s[0], 'g'), s[0]);
   if (s.length >= 2 && s[0] === '[') return s.slice(1, -1);
   return s;
 }
 
 /** A light SQL formatter: one clause per line, upper-case keywords. Comments and literals are kept as written. */
-export function formatSql(sql) {
+export function formatSql(sql: string): string {
   const breakBefore = new Set(['SELECT', 'FROM', 'WHERE', 'GROUP', 'ORDER', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'INTERSECT', 'EXCEPT', 'VALUES', 'SET', 'RETURNING', 'WINDOW']);
   const joins = new Set(['JOIN', 'LEFT', 'RIGHT', 'FULL', 'INNER', 'CROSS', 'NATURAL']);
   const toks = tokenize(sql);
@@ -336,7 +363,7 @@ export function formatSql(sql) {
     if (t.type === 'word' && KEYWORDS.has(txt.toUpperCase())) txt = txt.toUpperCase();
     const u = txt.toUpperCase();
     const pad = '  '.repeat(depth);
-    if (t.type === 'word' && (breakBefore.has(u) || (joins.has(u) && !joins.has(prevSig?.text.toUpperCase()) && prevSig?.text.toUpperCase() !== 'OUTER')) && prevSig && prevSig.text !== '(') {
+    if (t.type === 'word' && (breakBefore.has(u) || (joins.has(u) && !joins.has(prevSig?.text.toUpperCase() ?? '') && prevSig?.text.toUpperCase() !== 'OUTER')) && prevSig && prevSig.text !== '(') {
       out = out.replace(/ $/, '') + '\n' + pad;
     } else if (t.type === 'word' && (u === 'AND' || u === 'OR') && depth === 0) {
       out = out.replace(/ $/, '') + '\n' + pad + '  ';
