@@ -18,6 +18,9 @@ await new Promise((r) => server.stdout.once('data', r));
 const base = `http://localhost:${port}/`;
 const browser = await chromium.launch({ headless: !process.argv.includes('--headed') });
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } });
+// The brand fonts come from Google Fonts; serve an empty stylesheet so tests run offline and deterministically
+// (the pages fall back to system fonts, as they would if Google Fonts were unreachable).
+await ctx.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -48,6 +51,24 @@ try {
     await page.waitForFunction(() => window.smaltui?.db && document.querySelector('#dbName').textContent === 'e2e', null, { timeout: 15000 });
   });
   await shot('01-welcome');
+
+  await step('smalt brand: tokens, Chevron favicon and lockup, both themes', async () => {
+    const r = await page.evaluate(async () => {
+      const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+      const visibleLogo = () => [...document.querySelectorAll('.brand img')].find((i) => i.offsetParent !== null);
+      const icon = document.querySelector('link[rel="icon"]').href;
+      const iconOk = (await fetch(icon)).ok;
+      const light = { primary: css('--primary'), font: css('--font-sans'), logo: visibleLogo()?.src.split('/').pop(), logoLoaded: visibleLogo()?.naturalWidth > 0 };
+      const btnFont = getComputedStyle(document.querySelector('.btn-label')).fontFamily;
+      document.documentElement.dataset.theme = 'dark';
+      const dark = { primary: css('--primary'), logo: visibleLogo()?.src.split('/').pop() };
+      document.documentElement.dataset.theme = 'light';
+      return { icon: icon.split('/').slice(-3).join('/'), iconOk, light, dark, btnFont };
+    });
+    const ok = r.iconOk && r.icon === 'logos/smaltui/favicon-32.svg' && r.light.primary.toUpperCase() === '#003399' && /Geist/.test(r.light.font) &&
+      r.light.logo === 'lockup.svg' && r.light.logoLoaded && r.dark.primary.toUpperCase() === '#9DB4F5' && r.dark.logo === 'lockup-on-dark.svg' && !/Martian/.test(r.btnFont);
+    if (!ok) throw new Error(JSON.stringify(r));
+  });
 
   await step('create a table and insert rows from a script', async () => {
     await page.locator('#btnNewQuery').click();
@@ -250,6 +271,14 @@ try {
       await page.waitForFunction(() => /rows? in|Could not|could not/.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 20000 });
       const landing = await page.locator('#consoleStatus').textContent();
       if (!/rows? in/.test(landing)) throw new Error('landing console: ' + landing);
+      // Landing branding: lockup, "Powered by smaltdb" badge, favicon and tagline.
+      const brand = await page.evaluate(async () => ({
+        imgs: [...document.querySelectorAll('img')].filter((i) => i.offsetParent !== null).map((i) => [i.src.split('/').pop(), i.naturalWidth > 0]),
+        icon: (await fetch(document.querySelector('link[rel="icon"]').href)).ok,
+        eyebrow: document.querySelector('.eyebrow').textContent,
+      }));
+      const shown = Object.fromEntries(brand.imgs);
+      if (!shown['lockup.svg'] || !shown['powered-by-smaltdb.svg'] || !brand.icon || brand.eyebrow !== 'Small. Alternative. Query.') throw new Error('landing brand: ' + JSON.stringify(brand));
       await page.locator('.example', { hasText: 'Parquet file' }).click();
       await page.waitForFunction(() => document.querySelectorAll('#gridHost tbody tr[data-row]').length === 3, null, { timeout: 10000 });
       const href = await page.locator('#openInWb').getAttribute('href');

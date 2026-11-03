@@ -1,9 +1,18 @@
-# smaltui
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/logos/smaltui/lockup-on-dark.svg">
+    <img alt="smaltui" src="brand/logos/smaltui/lockup.svg" width="280">
+  </picture>
+</h1>
 
-A query workbench for [smaltdb](https://github.com/stenhoor/smaltdb), the SQL database engine that runs in the browser.
-smaltui is in the spirit of Toad: an object explorer, tabbed SQL editors, data grids you can browse and edit, and
-import tools. It is a **static site**. There is no server: the engine runs in a Web Worker in each visitor's browser,
-and databases are stored in that browser's private storage (OPFS) or in memory.
+**Small. Alternative. Query.**
+
+A SQL console for [smaltdb](https://smaltdb.dev) that runs entirely in the browser. smaltui is in the spirit of Toad:
+an object explorer, tabbed SQL editors, data grids you can browse and edit, and import tools. It is a **static site**:
+the engine runs in a Web Worker in each visitor's browser, and databases are stored in that browser's private storage
+(OPFS) or in memory.
+
+<a href="https://smaltdb.dev"><picture><source media="(prefers-color-scheme: dark)" srcset="brand/badges/powered-by-smaltdb-on-dark.svg"><img alt="Powered by smaltdb" src="brand/badges/powered-by-smaltdb.svg" width="172" height="28"></picture></a>
 
 Serve the folder from any static host and you have a live environment. Add `?env=…` and the page builds a ready-made
 database (schema, data, linked sources, saved queries) when it opens.
@@ -157,6 +166,19 @@ https://your.host/smaltui/workbench/?env=envs/demo/env.json
 `envs/demo/` is a small tea-and-coffee shop with sample data. It has tables, indexes, a view, a materialized view,
 a linked CSV, sales data imported from a Parquet file and saved queries. The welcome tab opens it.
 
+## Brand
+
+smaltui uses the smalt brand from [stenhoor/smalt-brand](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md):
+the Chevron mark, the Kiln palette, Geist / Geist Mono / Martian Mono, and the tagline "Small. Alternative. Query."
+
+- `brand/` is a verbatim copy of the files smaltui uses (tokens, smaltui logos, "Powered by" badges), pinned to the
+  smalt-brand commit in `brand/VERSION.json`. Don't edit it: change assets in smalt-brand, then
+  `npm run brand:sync -- --ref <commit>`. CI runs `node scripts/sync-brand.mjs --check` to keep the copy exact.
+- `brand/tokens/tokens.css` loads before `app/styles.css`; the workbench's colours are defined from its tokens (light
+  and dark), and SQL highlighting uses the brand's `syn-*` colours. Fonts load from Google Fonts; without them the pages
+  fall back to system fonts.
+- Projects built on smaltui can show the "Powered by smaltui" badge (`brand/badges/`), linked to this repository.
+
 ## Layout
 
 ```
@@ -171,8 +193,10 @@ app/env.js            environment manifests: load, export, SQL dump
 app/store.js          localStorage prefs/history, IndexedDB file handles
 vendor/smaltdb/       engine, copied from node_modules/smaltdb on install (not committed)
 envs/                 environments served with the page
-scripts/              vendor (npm → vendor/), build and serve scripts
+brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)
+scripts/              vendor (npm → vendor/), brand sync, build and serve scripts
 test/e2e.mjs          end-to-end test in headless Chromium (npm test)
+test/smoke.mjs        post-deploy check of a live site
 ```
 
 From the browser console, `smaltui.db` is the open smaltdb `Database`.

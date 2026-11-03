@@ -1,0 +1,20 @@
+{
+  "source": "https://github.com/stenhoor/smalt-brand",
+  "commit": "f857b8fd6ed4f775de0535049dd306b28af8a6c6",
+  "files": [
+    "tokens/tokens.css",
+    "logos/smaltui/app-icon.svg",
+    "logos/smaltui/chevron-mark.svg",
+    "logos/smaltui/chevron-mark-on-dark.svg",
+    "logos/smaltui/favicon-16.svg",
+    "logos/smaltui/favicon-32.svg",
+    "logos/smaltui/lockup.svg",
+    "logos/smaltui/lockup-on-dark.svg",
+    "logos/smaltui/wordmark.svg",
+    "logos/smaltui/wordmark-on-dark.svg",
+    "badges/powered-by-smaltdb.svg",
+    "badges/powered-by-smaltdb-on-dark.svg",
+    "badges/powered-by-smaltui.svg",
+    "badges/powered-by-smaltui-on-dark.svg"
+  ]
+}

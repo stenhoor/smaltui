@@ -1,7 +1,7 @@
 // Assembles the static site in dist/ (what GitHub Pages serves):
 //
 //   dist/index.html, site.css, demo.js   landing page with a live console (from site/)
-//   dist/workbench/                      the full workbench: index.html, app/, vendor/, envs/
+//   dist/workbench/                      the full workbench: index.html, app/, vendor/, envs/, brand/
 //
 // Nothing is compiled; this only gathers files. Preview it with `npm run preview`.
 import { cpSync, existsSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -16,7 +16,7 @@ if (!existsSync(join(root, 'vendor/smaltdb/smaltdb.js'))) {
 }
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, 'workbench'), { recursive: true });
-for (const f of ['index.html', 'app', 'vendor', 'envs']) cpSync(join(root, f), join(out, 'workbench', f), { recursive: true });
+for (const f of ['index.html', 'app', 'vendor', 'envs', 'brand']) cpSync(join(root, f), join(out, 'workbench', f), { recursive: true });
 cpSync(join(root, 'site'), out, { recursive: true });
 for (const f of ['_headers', 'LICENSE']) if (existsSync(join(root, f))) cpSync(join(root, f), join(out, f));
 writeFileSync(join(out, '.nojekyll'), '');

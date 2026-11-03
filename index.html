@@ -4,8 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>smaltui</title>
-  <meta name="description" content="A query workbench for smaltdb, the in-browser SQL database. Runs entirely in your browser.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b5fd9'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h9' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <meta name="description" content="smaltui: a SQL console for smaltdb that runs entirely in the browser. Small. Alternative. Query.">
+  <link rel="icon" type="image/svg+xml" href="brand/logos/smaltui/favicon-32.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&family=Martian+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="brand/tokens/tokens.css">
   <link rel="stylesheet" href="app/styles.css">
   <script>
     // Apply the saved theme before first paint.
@@ -15,9 +19,8 @@
 <body>
   <div id="app">
     <header class="topbar">
-      <div class="brand" title="smaltui — a query workbench for smaltdb">
-        <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M9 11h14M9 16h14M9 21h9" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>
-        <span>smalt<b>ui</b></span>
+      <div class="brand" title="smaltui — Small. Alternative. Query.">
+        <span class="brand-full"><img class="logo-light" src="brand/logos/smaltui/lockup.svg" alt="smaltui" height="22"><img class="logo-dark" src="brand/logos/smaltui/lockup-on-dark.svg" alt="smaltui" height="22"></span><span class="brand-compact"><img class="logo-light" src="brand/logos/smaltui/chevron-mark.svg" alt="smaltui" height="22"><img class="logo-dark" src="brand/logos/smaltui/chevron-mark-on-dark.svg" alt="smaltui" height="22"></span>
       </div>
       <button class="db-picker" id="dbPicker" title="Switch database (Ctrl+Shift+O)">
         <span class="db-dot" id="dbDot"></span>
@@ -26,9 +29,9 @@
         <span class="caret">▾</span>
       </button>
       <div class="topbar-actions">
-        <button class="ghost" id="btnNewQuery" title="New query tab (Ctrl+Shift+N)">＋<span class="label"> Query</span></button>
-        <button class="ghost" id="btnImport" title="Import or link data">⇣<span class="label"> Import</span></button>
-        <button class="ghost" id="btnHistory" title="Query history">⟲<span class="label"> History</span></button>
+        <button class="ghost" id="btnNewQuery" title="New query tab (Ctrl+Shift+N)">＋<span class="btn-label"> Query</span></button>
+        <button class="ghost" id="btnImport" title="Import or link data">⇣<span class="btn-label"> Import</span></button>
+        <button class="ghost" id="btnHistory" title="Query history">⟲<span class="btn-label"> History</span></button>
         <div class="menu-wrap">
           <button class="ghost" id="btnMore" aria-haspopup="true" title="More">⋯</button>
           <div class="menu" id="moreMenu" hidden>
