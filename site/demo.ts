@@ -1,11 +1,11 @@
 // Live console on the landing page: an in-memory smaltdb loaded with the demo environment,
 // using the workbench's own engine loader, editor, grid and environment code.
-import { loadEngine } from './workbench/app/engine.js';
-import { Editor } from './workbench/app/editor.js';
-import { Grid } from './workbench/app/grid.js';
-import { fetchManifest, applyManifest } from './workbench/app/env.js';
-import { statementAt, returnsRows, quoteIdent } from './workbench/app/sql.js';
-import { corsHint } from './workbench/app/urls.js';
+import { loadEngine, type Database, type Engine } from '../app/engine.js';
+import { Editor, type EditorSchema, type SchemaTable } from '../app/editor.js';
+import { Grid, type Row } from '../app/grid.js';
+import { fetchManifest, applyManifest } from '../app/env.js';
+import { statementAt, returnsRows, quoteIdent } from '../app/sql.js';
+import { corsHint } from '../app/urls.js';
 
 const ENV = 'workbench/envs/demo/env.json';
 const MAX_ROWS = 500;
@@ -83,17 +83,19 @@ ORDER BY table_type, table_name;`,
   },
 ];
 
-const $ = (s) => document.querySelector(s);
+/** Elements on this page are known to exist; typed loosely enough for .value, .href and .disabled. */
+const $ = <T extends HTMLElement = HTMLInputElement & HTMLAnchorElement>(s: string): T => document.querySelector<T>(s)!;
 const statusEl = $('#consoleStatus');
 const runBtn = $('#runBtn');
-const fmtMs = (ms) => (ms < 1000 ? `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`);
-const errText = (e) => {
-  const base = e?.code ? `${e.code}: ${e.message}` : String(e?.message ?? e);
+const fmtMs = (ms: number): string => (ms < 1000 ? `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`);
+const errText = (e: unknown): string => {
+  const err = e as { code?: string; message?: string } | null;
+  const base = err?.code ? `${err.code}: ${err.message}` : String(err?.message ?? e);
   const hint = corsHint(base);
   return hint ? `${base} ${hint}` : base;
 };
 
-function status(text, err = false) {
+function status(text: string, err = false): void {
   statusEl.textContent = text;
   statusEl.classList.toggle('err', err);
 }
@@ -109,7 +111,7 @@ $('#themeBtn').onclick = () => {
 };
 
 // ------------------------------------------------------------------ UI
-const schema = { names: new Set(), tables: new Map() };
+const schema: EditorSchema = { names: new Set(), tables: new Map() };
 const editor = new Editor($('#editorHost'), {
   value: EXAMPLES[0].sql + '\n',
   schema: () => schema,
@@ -124,7 +126,7 @@ EXAMPLES.forEach((ex, i) => {
   b.className = 'example' + (i === 0 ? ' active' : '');
   b.innerHTML = `${ex.title}<small>${ex.note}</small>`;
   b.onclick = () => {
-    exBox.querySelectorAll('.example').forEach((x) => x.classList.toggle('active', x === b));
+    exBox.querySelectorAll('.example').forEach((x: Element) => x.classList.toggle('active', x === b));
     editor.value = ex.sql + '\n';
     updateWorkbenchLink();
     run(ex.sql);
@@ -132,19 +134,19 @@ EXAMPLES.forEach((ex, i) => {
   exBox.appendChild(b);
 });
 
-function updateWorkbenchLink() {
+function updateWorkbenchLink(): void {
   const sql = editor.value.trim();
   $('#openInWb').href = `workbench/?env=envs/demo/env.json${sql ? '&sql=' + encodeURIComponent(sql) : ''}`;
 }
 runBtn.onclick = () => run();
 
 // ------------------------------------------------------------------ engine + data
-let db = null;
+let db: Database | null = null;
 let busy = false;
 
-async function start() {
+async function start(): Promise<void> {
   const t0 = performance.now();
-  let engine;
+  let engine: Engine;
   try {
     engine = await loadEngine('vendor');
   } catch (e) {
@@ -160,7 +162,7 @@ async function start() {
   try {
     db = await engine.open('smaltui-landing', { storage: 'memory' });
     const m = await fetchManifest(ENV);
-    const total = m.steps.length;
+    const total = m.steps?.length ?? 0;
     let n = 0;
     await applyManifest(db, m, () => status(`Loading demo data… ${++n}/${total}`));
     await loadSchema();
@@ -175,21 +177,22 @@ async function start() {
   run(EXAMPLES[0].sql);
 }
 
-async function loadSchema() {
-  const cols = await db.query("SELECT c.table_name, c.column_name, c.data_type, t.table_type FROM information_schema.columns c JOIN information_schema.tables t ON t.table_name = c.table_name WHERE c.table_schema <> 'information_schema' ORDER BY t.table_type, c.table_name, c.ordinal_position", [], { rowMode: 'object' });
+async function loadSchema(): Promise<void> {
+  if (!db) return;
+  const cols = await db.query<{ table_name: string; column_name: string; data_type: string | null; table_type: string }>("SELECT c.table_name, c.column_name, c.data_type, t.table_type FROM information_schema.columns c JOIN information_schema.tables t ON t.table_name = c.table_name WHERE c.table_schema <> 'information_schema' ORDER BY t.table_type, c.table_name, c.ordinal_position");
   schema.tables.clear();
   for (const c of cols) {
     if (!schema.tables.has(c.table_name)) {
-      const arr = [];
+      const arr: SchemaTable = [];
       arr.kind = c.table_type === 'VIEW' ? 'view' : c.table_type === 'EXTERNAL' ? 'external' : c.table_type === 'MATERIALIZED VIEW' ? 'matview' : 'table';
       arr.type = c.table_type;
       schema.tables.set(c.table_name, arr);
     }
-    schema.tables.get(c.table_name).push({ name: c.column_name, type: c.data_type });
+    schema.tables.get(c.table_name)!.push({ name: c.column_name, type: c.data_type });
   }
   schema.names = new Set([...schema.tables.keys()].map((n) => n.toLowerCase()));
   editor.render();
-  const label = { table: '', view: 'view', matview: 'mat. view', external: 'external' };
+  const label: Record<string, string> = { table: '', view: 'view', matview: 'mat. view', external: 'external' };
   const list = $('#schemaList');
   list.innerHTML = '';
   for (const [name, c] of schema.tables) {
@@ -203,12 +206,12 @@ async function loadSchema() {
       run();
     };
     row.appendChild(b);
-    if (label[c.kind]) row.insertAdjacentHTML('beforeend', ` <span class="k">${label[c.kind]}</span>`);
+    if (c.kind && label[c.kind]) row.insertAdjacentHTML('beforeend', ` <span class="k">${label[c.kind]}</span>`);
     list.appendChild(row);
   }
 }
 
-async function run(sqlText) {
+async function run(sqlText?: string): Promise<void> {
   if (!db || busy) return;
   let sql = sqlText;
   if (!sql) {
@@ -226,8 +229,8 @@ async function run(sqlText) {
   const t0 = performance.now();
   try {
     if (returnsRows(sql)) {
-      const rows = [];
-      let columns = null;
+      const rows: Row[] = [];
+      let columns: string[] | null = null;
       let more = false;
       const it = db.stream(sql, [], { rowMode: 'array', batchSize: 250 });
       for (;;) {
@@ -237,7 +240,7 @@ async function run(sqlText) {
         for (const r of n.value) rows.push(r);
         if (rows.length >= MAX_ROWS) {
           more = true;
-          await it.return();
+          await it.return?.();
           break;
         }
       }

@@ -7,8 +7,10 @@ file is the shared starting point. smaltdb has the matching file (stenhoor/smalt
 ## Commands
 
 ```bash
-npm install            # postinstall copies the smaltdb engine from node_modules into vendor/smaltdb/
-npm run serve          # the workbench from source, http://localhost:8080 (COOP/COEP on; --no-isolation to drop it,
+npm install            # postinstall copies the smaltdb engine into vendor/smaltdb/ and compiles the TypeScript
+npm run dev            # serve and recompile on change
+npm run typecheck      # tsc --noEmit, strict (CI runs it)
+npm run serve          # compile once, then the workbench, http://localhost:8080 (COOP/COEP on; --no-isolation to drop it,
                        # --gzip to compress like GitHub Pages)
 npm run preview        # build, then serve dist/ (landing page at /, workbench at /workbench/), as deployed
 npm run build          # assemble the site in dist/
@@ -28,9 +30,11 @@ npm install --no-save playwright && npx playwright install --with-deps chromium
 ## Repo map
 
 - `app/` is the workbench, `site/` the landing page, `envs/` the environments (demo data and manifests).
+- Sources are TypeScript (strict): edit `app/*.ts` and `site/*.ts`. `scripts/compile.mjs` writes a `.js` beside each one
+  (gitignored), which the pages load. Keep imports as `./name.js` (they resolve to the `.ts` when type checking).
 - `scripts/` holds the vendor, build and serve scripts. `test/e2e.mjs` is the test suite (`npm test`); it also runs
   `test/smoke.mjs`, the post-deploy check, against a local server that compresses like Pages.
-- `vendor/` and `dist/` are generated: do not edit or commit them.
+- `vendor/`, `dist/` and the compiled `app/*.js` / `site/*.js` are generated: do not edit or commit them.
 - `brand/` is a pinned, verbatim copy of smalt-brand assets (committed; CI checks it): never edit it by hand.
 - For details, read the [Layout](README.md#layout), [Environments](README.md#environments) and
   [Deploy](README.md#deploy) sections of the README instead of copying them here.

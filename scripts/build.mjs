@@ -3,7 +3,7 @@
 //   dist/index.html, site.css, demo.js   landing page with a live console (from site/)
 //   dist/workbench/                      the full workbench: index.html, app/, vendor/, envs/, brand/
 //
-// Nothing is compiled; this gathers files, then stamps every local CSS and JS reference with a build version
+// It compiles the TypeScript (scripts/compile.mjs), gathers files (the .js output, not the .ts sources), then stamps every local CSS and JS reference with a build version
 // (`styles.css?v=<hash>`, `from './sql.js?v=<hash>'`). GitHub Pages lets browsers reuse files for up to 10 minutes,
 // so without it a new page can run with the previous deploy's stylesheet or modules (seen after the brand deploy:
 // new HTML with old CSS showed the light and dark logos at once). Preview it with `npm run preview`.
@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compile } from './compile.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = resolve(root, process.argv[2] ?? 'dist');
@@ -18,10 +19,15 @@ if (!existsSync(join(root, 'vendor/smaltdb/smaltdb.js'))) {
   console.error('vendor/smaltdb is missing: run `npm install` (it copies the smaltdb npm package there).');
   process.exit(1);
 }
+await compile({ quiet: true });
 rmSync(out, { recursive: true, force: true });
+// TypeScript sources stay out of the site; the .js and its source map (with the sources embedded) are enough.
+const noTs = (src) => !/\.ts$/.test(src);
 mkdirSync(join(out, 'workbench'), { recursive: true });
-for (const f of ['index.html', 'app', 'vendor', 'envs', 'brand']) cpSync(join(root, f), join(out, 'workbench', f), { recursive: true });
-cpSync(join(root, 'site'), out, { recursive: true });
+for (const f of ['index.html', 'app', 'vendor', 'envs', 'brand']) cpSync(join(root, f), join(out, 'workbench', f), { recursive: true, filter: noTs });
+cpSync(join(root, 'site'), out, { recursive: true, filter: noTs });
+// The landing page imports the workbench modules as ../app/ in the repo; in the site they live at ./workbench/app/.
+writeFileSync(join(out, 'demo.js'), readFileSync(join(out, 'demo.js'), 'utf8').replace(/(["'])\.\.\/app\//g, '$1./workbench/app/'));
 for (const f of ['_headers', 'LICENSE']) if (existsSync(join(root, f))) cpSync(join(root, f), join(out, f));
 writeFileSync(join(out, '.nojekyll'), '');
 

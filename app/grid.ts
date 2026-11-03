@@ -1,10 +1,34 @@
 // A virtualized data grid: renders only visible rows, resizable columns, sortable headers,
 // cell selection with keyboard navigation, copy, and optional in-place editing.
 
+import type { SqlValue } from './sql.js';
+
+export type Value = SqlValue | undefined;
+export type Row = Value[];
+export type SortDir = 'asc' | 'desc' | null;
+
+/** A grid column: a name, plus optional type and primary-key flag for the header. */
+export interface Column {
+  name: string;
+  type?: string | null;
+  pk?: boolean;
+}
+
+export interface GridOptions {
+  onSort?: (col: number, dir: SortDir) => void;
+  editable?: (row: number, col: number) => boolean;
+  onEdit?: (row: number, col: number, value: string | null) => Promise<void>;
+  onSelect?: (row: number, col: number) => void;
+  onOpenValue?: (row: number, col: number) => void;
+  emptyText?: string;
+}
+
+export type ExportFormat = 'csv' | 'tsv' | 'json' | 'ndjson' | 'sql';
+
 const ROW_H = 26;
 const OVERSCAN = 12;
 
-export function formatValue(v) {
+export function formatValue(v: Value): string | null {
   if (v === null || v === undefined) return null;
   if (v instanceof Uint8Array) {
     const hex = [...v.subarray(0, 32)].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -15,22 +39,40 @@ export function formatValue(v) {
 }
 
 /** Text used for copying / export. */
-export function plainValue(v) {
+export function plainValue(v: Value): string {
   if (v === null || v === undefined) return '';
   if (v instanceof Uint8Array) return "x'" + [...v].map((b) => b.toString(16).padStart(2, '0')).join('') + "'";
   return String(v);
 }
 
-const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/** The nearest ancestor of an event's target that matches `sel`. */
+function closest<T extends HTMLElement = HTMLElement>(e: Event, sel: string): T | null {
+  return (e.target as Element | null)?.closest<T>(sel) ?? null;
+}
+
+const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 export class Grid {
-  /**
-   * @param {HTMLElement} host
-   * @param {{ onSort?: (col:number, dir:'asc'|'desc'|null)=>void, editable?: (row:number,col:number)=>boolean,
-   *           onEdit?: (row:number, col:number, value:string|null)=>Promise<void>, onSelect?: (row:number,col:number)=>void,
-   *           onOpenValue?: (row:number,col:number)=>void, emptyText?: string }} opts
-   */
-  constructor(host, opts = {}) {
+  opts: GridOptions;
+  host: HTMLElement;
+  columns: Column[] = [];
+  rows: Row[] = [];
+  /** Client-side sort permutation (view index → row index), or null when unsorted. */
+  order: number[] | null = null;
+  sort: { col: number; dir: SortDir } = { col: -1, dir: null };
+  widths: number[] = [];
+  sel = { row: -1, col: -1 };
+  range: [number, number] = [-1, -1];
+  scroller: HTMLDivElement;
+  table: HTMLTableElement;
+  colgroup: HTMLTableColElement;
+  headRow: HTMLTableRowElement;
+  body: HTMLTableSectionElement;
+  empty: HTMLDivElement;
+  editing = false;
+  justResized = false;
+
+  constructor(host: HTMLElement, opts: GridOptions = {}) {
     this.opts = opts;
     this.host = host;
     this.columns = [];
@@ -43,12 +85,12 @@ export class Grid {
     host.classList.add('grid');
     host.tabIndex = 0;
     host.innerHTML = `<div class="grid-scroll"><table class="grid-table"><colgroup></colgroup><thead><tr></tr></thead><tbody></tbody></table><div class="grid-empty"></div></div>`;
-    this.scroller = host.querySelector('.grid-scroll');
-    this.table = host.querySelector('table');
-    this.colgroup = host.querySelector('colgroup');
-    this.headRow = host.querySelector('thead tr');
-    this.body = host.querySelector('tbody');
-    this.empty = host.querySelector('.grid-empty');
+    this.scroller = host.querySelector<HTMLDivElement>('.grid-scroll')!;
+    this.table = host.querySelector('table')!;
+    this.colgroup = host.querySelector('colgroup')!;
+    this.headRow = host.querySelector<HTMLTableRowElement>('thead tr')!;
+    this.body = host.querySelector('tbody')!;
+    this.empty = host.querySelector<HTMLDivElement>('.grid-empty')!;
     this.scroller.addEventListener('scroll', () => this.renderRows());
     new ResizeObserver(() => this.renderRows(true)).observe(this.scroller);
     this.body.addEventListener('mousedown', (e) => this.onCellDown(e));
@@ -60,7 +102,7 @@ export class Grid {
   }
 
   /** columns: string[] (or {name, type}); rows: array of value arrays. */
-  setData(columns, rows, { serverSort = null, keepScroll = false } = {}) {
+  setData(columns: (string | Column)[], rows: Row[], { serverSort = null, keepScroll = false }: { serverSort?: { col: number; dir: SortDir } | null; keepScroll?: boolean } = {}): void {
     this.columns = columns.map((c) => (typeof c === 'string' ? { name: c } : c));
     this.rows = rows;
     this.order = null;
@@ -72,31 +114,31 @@ export class Grid {
     this.renderRows(true);
   }
 
-  append(rows) {
+  append(rows: Row[]): void {
     for (const r of rows) this.rows.push(r);
     this.refresh();
   }
 
   /** Re-render after the row array changed in place. */
-  refresh() {
+  refresh(): void {
     if (this.order) this.applyClientSort();
     this.renderRows(true);
   }
 
-  get rowCount() {
+  get rowCount(): number {
     return this.rows.length;
   }
 
-  rowAt(viewIndex) {
+  rowAt(viewIndex: number): Row {
     return this.rows[this.order ? this.order[viewIndex] : viewIndex];
   }
 
   /** Underlying row index for a view index. */
-  sourceIndex(viewIndex) {
+  sourceIndex(viewIndex: number): number {
     return this.order ? this.order[viewIndex] : viewIndex;
   }
 
-  computeWidths() {
+  computeWidths(): void {
     const sample = this.rows.slice(0, 200);
     this.widths = this.columns.map((c, i) => {
       let w = c.name.length + (c.type ? c.type.length * 0.8 + 2 : 0) + (c.pk ? 2 : 0) + 3;
@@ -108,7 +150,7 @@ export class Grid {
     });
   }
 
-  renderHead() {
+  renderHead(): void {
     this.colgroup.innerHTML = `<col style="width:52px">` + this.widths.map((w) => `<col style="width:${w}px">`).join('');
     this.table.style.width = 52 + this.widths.reduce((a, b) => a + b, 0) + 'px';
     this.headRow.innerHTML =
@@ -124,7 +166,7 @@ export class Grid {
         .join('');
   }
 
-  renderRows(force = false) {
+  renderRows(force = false): void {
     const n = this.rows.length;
     const headH = this.headRow.offsetHeight || ROW_H;
     const top = Math.max(0, this.scroller.scrollTop - headH);
@@ -157,31 +199,31 @@ export class Grid {
     this.body.innerHTML = html;
   }
 
-  cellFromEvent(e) {
-    const td = e.target.closest('td[data-col]');
-    const tr = e.target.closest('tr[data-row]');
+  cellFromEvent(e: Event): { row: number; col: number; td: HTMLTableCellElement } | null {
+    const td = closest<HTMLTableCellElement>(e, 'td[data-col]');
+    const tr = closest<HTMLTableRowElement>(e, 'tr[data-row]');
     if (!td || !tr) return null;
     return { row: Number(tr.dataset.row), col: Number(td.dataset.col), td };
   }
 
-  onCellDown(e) {
+  onCellDown(e: MouseEvent): void {
     const cell = this.cellFromEvent(e);
     if (!cell) {
-      const tr = e.target.closest('tr[data-row]');
+      const tr = closest<HTMLTableRowElement>(e, 'tr[data-row]');
       if (tr) this.select(Number(tr.dataset.row), Math.max(0, this.sel.col));
       return;
     }
     this.select(cell.row, cell.col);
   }
 
-  onCellDbl(e) {
+  onCellDbl(e: MouseEvent): void {
     const cell = this.cellFromEvent(e);
     if (!cell) return;
     if (this.opts.editable?.(this.sourceIndex(cell.row), cell.col)) this.beginEdit(cell.row, cell.col);
     else this.opts.onOpenValue?.(this.sourceIndex(cell.row), cell.col);
   }
 
-  select(row, col, scroll = false) {
+  select(row: number, col: number, scroll = false): void {
     const n = this.rows.length;
     if (n === 0) return;
     row = Math.max(0, Math.min(n - 1, row));
@@ -209,16 +251,16 @@ export class Grid {
     this.opts.onSelect?.(this.sourceIndex(row), col);
   }
 
-  selectedValue() {
+  selectedValue(): Value {
     if (this.sel.row < 0) return undefined;
     return this.rowAt(this.sel.row)?.[this.sel.col];
   }
 
-  selectedSourceRow() {
+  selectedSourceRow(): number {
     return this.sel.row < 0 ? -1 : this.sourceIndex(this.sel.row);
   }
 
-  onKey(e) {
+  onKey(e: KeyboardEvent): void {
     if (this.editing) return;
     const { row, col } = this.sel;
     const page = Math.max(1, Math.floor(this.scroller.clientHeight / ROW_H) - 2);
@@ -270,13 +312,13 @@ export class Grid {
     if (handled) e.preventDefault();
   }
 
-  flash() {
+  flash(): void {
     const td = this.body.querySelector('td.sel');
     td?.classList.add('copied');
     setTimeout(() => td?.classList.remove('copied'), 400);
   }
 
-  beginEdit(viewRow, col) {
+  beginEdit(viewRow: number, col: number): void {
     this.select(viewRow, col, true);
     const td = this.body.querySelector(`tr[data-row="${viewRow}"] td[data-col="${col}"]`);
     if (!td) return;
@@ -291,7 +333,7 @@ export class Grid {
     input.select();
     this.editing = true;
     let done = false;
-    const finish = async (commit, setNull = false) => {
+    const finish = async (commit: boolean, setNull = false) => {
       if (done) return;
       done = true;
       this.editing = false;
@@ -315,9 +357,9 @@ export class Grid {
     input.addEventListener('blur', () => finish(false));
   }
 
-  onHeadClick(e) {
-    if (e.target.closest('[data-resize]') || this.justResized) return;
-    const th = e.target.closest('th[data-col]');
+  onHeadClick(e: MouseEvent): void {
+    if (closest(e, '[data-resize]') || this.justResized) return;
+    const th = closest(e, 'th[data-col]');
     if (!th) return;
     const col = Number(th.dataset.col);
     const dir = this.sort.col !== col ? 'asc' : this.sort.dir === 'asc' ? 'desc' : this.sort.dir === 'desc' ? null : 'asc';
@@ -330,19 +372,23 @@ export class Grid {
     }
   }
 
-  applyClientSort() {
+  applyClientSort(): void {
     const { col, dir } = this.sort;
     if (!dir) {
       this.order = null;
       return;
     }
-    const rank = (v) => (v === null || v === undefined ? 0 : typeof v === 'number' || typeof v === 'bigint' ? 1 : typeof v === 'string' ? 2 : 3);
-    const cmp = (a, b) => {
+    const rank = (v: Value): number => (v === null || v === undefined ? 0 : typeof v === 'number' || typeof v === 'bigint' ? 1 : typeof v === 'string' ? 2 : 3);
+    const cmp = (a: Value, b: Value): number => {
       const ra = rank(a);
       const rb = rank(b);
       if (ra !== rb) return ra - rb;
-      if (ra === 1) return a < b ? -1 : a > b ? 1 : 0;
-      if (ra === 2) return a < b ? -1 : a > b ? 1 : 0;
+      // Same rank 1 (numbers/bigints) or 2 (strings): compare with < and >, which work across number and bigint.
+      if (ra === 1 || ra === 2) {
+        const x = a as number | bigint | string;
+        const y = b as number | bigint | string;
+        return x < y ? -1 : x > y ? 1 : 0;
+      }
       return 0;
     };
     const idx = this.rows.map((_, i) => i);
@@ -350,15 +396,15 @@ export class Grid {
     this.order = idx;
   }
 
-  onResizeStart(e) {
-    const handle = e.target.closest('[data-resize]');
+  onResizeStart(e: MouseEvent): void {
+    const handle = closest(e, '[data-resize]');
     if (!handle) return;
     e.preventDefault();
     const col = Number(handle.dataset.resize);
     const startX = e.clientX;
     const startW = this.widths[col];
-    const colEl = this.colgroup.children[col + 1];
-    const move = (ev) => {
+    const colEl = this.colgroup.children[col + 1] as HTMLElement;
+    const move = (ev: MouseEvent) => {
       this.widths[col] = Math.max(40, startW + ev.clientX - startX);
       colEl.style.width = this.widths[col] + 'px';
       this.table.style.width = 52 + this.widths.reduce((a, b) => a + b, 0) + 'px';
@@ -374,13 +420,13 @@ export class Grid {
   }
 
   /** Rows in view order (for export). */
-  viewRows() {
+  viewRows(): Row[] {
     return this.order ? this.order.map((i) => this.rows[i]) : this.rows;
   }
 }
 
 /** CSV / TSV / JSON / SQL INSERT text for a result. */
-export function exportRows(format, columns, rows, tableName = 'result') {
+export function exportRows(format: ExportFormat, columns: (string | Column)[], rows: Row[], tableName = 'result'): string {
   const names = columns.map((c) => (typeof c === 'string' ? c : c.name));
   if (format === 'json') {
     return JSON.stringify(
@@ -391,19 +437,19 @@ export function exportRows(format, columns, rows, tableName = 'result') {
   }
   if (format === 'ndjson') return rows.map((r) => JSON.stringify(Object.fromEntries(names.map((n, i) => [n, jsonValue(r[i])])))).join('\n') + '\n';
   if (format === 'sql') {
-    const q = (s) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ? s : '"' + s.replace(/"/g, '""') + '"');
-    const lit = (v) => (v === null || v === undefined ? 'NULL' : typeof v === 'number' || typeof v === 'bigint' ? String(v) : v instanceof Uint8Array ? plainValue(v) : "'" + String(v).replace(/'/g, "''") + "'");
+    const q = (s: string): string => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ? s : '"' + s.replace(/"/g, '""') + '"');
+    const lit = (v: Value): string => (v === null || v === undefined ? 'NULL' : typeof v === 'number' || typeof v === 'bigint' ? String(v) : v instanceof Uint8Array ? plainValue(v) : "'" + String(v).replace(/'/g, "''") + "'");
     return rows.map((r) => `INSERT INTO ${q(tableName)} (${names.map(q).join(', ')}) VALUES (${r.map(lit).join(', ')});`).join('\n') + '\n';
   }
   const d = format === 'tsv' ? '\t' : ',';
-  const cell = (v) => {
+  const cell = (v: Value): string => {
     const s = plainValue(v);
     return format === 'tsv' ? s.replace(/[\t\n\r]/g, ' ') : /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   return [names.map(cell).join(d), ...rows.map((r) => r.map(cell).join(d))].join('\n') + '\n';
 }
 
-function jsonValue(v) {
+function jsonValue(v: Value): unknown {
   if (typeof v === 'bigint') return Number.isSafeInteger(Number(v)) ? Number(v) : v.toString();
   if (v instanceof Uint8Array) return plainValue(v);
   return v;

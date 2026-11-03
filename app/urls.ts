@@ -4,7 +4,19 @@
 // from GitHub (…/blob/… pages and …/raw/… redirects) or Hugging Face (…/blob/… pages) do not, but
 // the same files at the hosts' raw-file URLs do. These are rewritten automatically.
 
-const rules = [
+interface Rule {
+  re: RegExp;
+  to: (m: RegExpExecArray) => string;
+  host: string;
+}
+
+export interface NormalizedUrl {
+  url: string;
+  changed: boolean;
+  note: string;
+}
+
+const rules: Rule[] = [
   // https://github.com/{owner}/{repo}/blob/{ref}/{path}  and  …/raw/{ref}/{path}
   {
     re: /^https?:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+)\/(?:blob|raw)\/(.+)$/i,
@@ -23,7 +35,7 @@ const rules = [
  * Rewrite a pasted data URL to one the browser can fetch.
  * Returns { url, changed, note } — `note` explains a rewrite or a URL that cannot work.
  */
-export function normalizeDataUrl(input) {
+export function normalizeDataUrl(input: string | null | undefined): NormalizedUrl {
   const raw = String(input ?? '').trim();
   if (!/^https?:\/\//i.test(raw)) return { url: raw, changed: false, note: '' };
   let url = raw.replace(/[?&]raw=true$/i, '');
@@ -44,7 +56,7 @@ export function normalizeDataUrl(input) {
  * Extra help for a CORS / network error message: why it happens and, for GitHub-style links, the
  * URL that works. Returns '' when the message is not about CORS.
  */
-export function corsHint(message) {
+export function corsHint(message: unknown): string {
   const text = String(message ?? '');
   if (!/CORS|cross-origin|Failed to fetch|NetworkError|Load failed/i.test(text)) return '';
   const urls = text.match(/https?:\/\/[^\s'")]+/g) ?? [];

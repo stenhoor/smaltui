@@ -60,12 +60,17 @@ full workbench is at [`/workbench/`](https://stenhoor.github.io/smaltui/workbenc
 ## Run it locally
 
 ```bash
-npm install          # also copies the smaltdb engine into vendor/smaltdb/
+npm install          # copies the smaltdb engine into vendor/smaltdb/ and compiles the TypeScript
 ```
 
 ```bash
-npm run serve        # http://localhost:8080
+npm run dev          # http://localhost:8080, recompiling on change
 ```
+
+smaltui is written in TypeScript (strict). `scripts/compile.mjs` compiles each `app/*.ts` and `site/*.ts` to a `.js`
+beside it (esbuild, one file per module, no bundling), and the pages load those files; they are generated and not
+committed. `npm run typecheck` runs `tsc`; CI runs it on every push. `npm run serve` compiles once and serves without
+watching.
 
 `scripts/serve.mjs` sends COOP/COEP headers, so the page is cross-origin isolated: smaltdb then uses parallel
 reader workers and can interrupt running statements. It also answers Range and HEAD requests, which smaltdb uses for
@@ -185,17 +190,21 @@ the Chevron mark, the Kiln palette, Geist / Geist Mono / Martian Mono, and the t
 ```
 index.html            workbench page shell (served at /workbench/ in the built site)
 site/                 landing page with the live console (served at / in the built site)
-app/main.js           application: tabs, explorer, query runner, table viewer, import, history
-app/editor.js         SQL editor (highlight overlay, completion, shortcuts)
-app/grid.js           virtualized data grid
-app/sql.js            tokenizer, statement splitter, parameter scanner, formatter
-app/engine.js         engine loading (vendor / npm / URL) and the OPFS database catalog
-app/env.js            environment manifests: load, export, SQL dump
-app/store.js          localStorage prefs/history, IndexedDB file handles
+app/main.ts           application: tabs, explorer, query runner, table viewer, import, history
+app/editor.ts         SQL editor (highlight overlay, completion, shortcuts)
+app/grid.ts           virtualized data grid
+app/sql.ts            tokenizer, statement splitter, parameter scanner, formatter
+app/engine.ts         engine loading (vendor / npm / URL) and the OPFS database catalog; smaltdb types
+app/env.ts            environment manifests: types, load, export, SQL dump
+app/urls.ts           data-URL rewriting (GitHub, Hugging Face) and CORS hints
+app/store.ts          localStorage prefs/history, IndexedDB file handles
+app/globals.d.ts      File System Access API declarations missing from TypeScript's DOM library
+site/demo.ts          the landing page's live console
+(app|site)/*.js       compiled output (npm run compile; not committed)
 vendor/smaltdb/       engine, copied from node_modules/smaltdb on install (not committed)
 envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)
-scripts/              vendor (npm → vendor/), brand sync, build and serve scripts
+scripts/              compile (TypeScript → .js), vendor (npm → vendor/), brand sync, build and serve scripts
 test/e2e.mjs          end-to-end test in headless Chromium (npm test)
 test/smoke.mjs        post-deploy check of a live site
 ```

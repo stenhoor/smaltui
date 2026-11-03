@@ -1,25 +1,69 @@
 // A small SQL editor: a transparent <textarea> over a highlighted <pre>, with line numbers,
 // auto-indent, comment toggling, bracket/quote pairing and a completion popup.
-import { highlight, wordBefore, aliasesIn, statementAt, KEYWORDS, FUNCTIONS, unquote } from './sql.js';
+import { highlight, wordBefore, aliasesIn, statementAt, KEYWORDS, FUNCTIONS, unquote, type Statement } from './sql.js';
 
-const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/** A column as the object explorer and completion know it. */
+export interface SchemaColumn {
+  name: string;
+  type?: string | null;
+  nullable?: boolean;
+  pk?: boolean;
+  generated?: boolean;
+}
+
+/** A table's columns, tagged with its kind ('table', 'view', 'matview', 'external', 'temp') and catalog type. */
+export type SchemaTable = SchemaColumn[] & { kind?: string; type?: string };
+
+/** What the editor needs from the schema: lower-cased object names (for highlighting) and columns per table. */
+export interface EditorSchema {
+  names: Set<string>;
+  tables: Map<string, SchemaTable>;
+}
+
+export interface EditorOptions {
+  value?: string;
+  onChange?: (value: string) => void;
+  schema?: () => EditorSchema;
+  /** Shortcuts such as "Mod+Enter", "Shift+Mod+Enter", "F5", "Mod+E". */
+  keys?: Record<string, (e: KeyboardEvent) => void>;
+}
+
+interface CompletionItem {
+  label: string;
+  kind: string;
+  detail: string;
+}
+
+const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 export class Editor {
-  /**
-   * @param {HTMLElement} host
-   * @param {{ value?: string, onChange?: (v:string)=>void, schema?: () => { names:Set<string>, tables:Map<string,string[]> }, keys?: Record<string,(e:KeyboardEvent)=>void> }} opts
-   */
-  constructor(host, opts = {}) {
+  opts: EditorOptions;
+  host: HTMLElement;
+  ta: HTMLTextAreaElement;
+  hl: HTMLPreElement;
+  lines: HTMLDivElement;
+  gutter: HTMLDivElement;
+  stmtMark: HTMLDivElement;
+  popup: HTMLDivElement;
+  errorRange: { start: number; end: number; cls: string } | null = null;
+  lineCount = 0;
+  compItems: CompletionItem[] = [];
+  compStart = 0;
+  compIndex = 0;
+  private _lh = 0;
+  private _cw = 0;
+
+  constructor(host: HTMLElement, opts: EditorOptions = {}) {
     this.opts = opts;
     host.classList.add('editor');
     host.innerHTML = `<div class="ed-gutter"><div class="ed-lines"></div></div><div class="ed-body"><pre class="ed-hl" aria-hidden="true"></pre><div class="ed-stmt"></div><textarea class="ed-input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="SQL editor"></textarea></div><div class="ed-complete" role="listbox" hidden></div>`;
     this.host = host;
-    this.ta = host.querySelector('textarea');
-    this.hl = host.querySelector('.ed-hl');
-    this.lines = host.querySelector('.ed-lines');
-    this.gutter = host.querySelector('.ed-gutter');
-    this.stmtMark = host.querySelector('.ed-stmt');
-    this.popup = host.querySelector('.ed-complete');
+    this.ta = host.querySelector('textarea')!;
+    this.hl = host.querySelector<HTMLPreElement>('.ed-hl')!;
+    this.lines = host.querySelector<HTMLDivElement>('.ed-lines')!;
+    this.gutter = host.querySelector<HTMLDivElement>('.ed-gutter')!;
+    this.stmtMark = host.querySelector<HTMLDivElement>('.ed-stmt')!;
+    this.popup = host.querySelector<HTMLDivElement>('.ed-complete')!;
     this.ta.value = opts.value ?? '';
     this.ta.addEventListener('input', () => this.changed());
     this.ta.addEventListener('scroll', () => this.syncScroll());
@@ -33,7 +77,7 @@ export class Editor {
     });
     this.ta.addEventListener('blur', () => setTimeout(() => this.hideComplete(), 150));
     this.popup.addEventListener('mousedown', (e) => {
-      const li = e.target.closest('[data-i]');
+      const li = (e.target as Element | null)?.closest<HTMLElement>('[data-i]');
       if (!li) return;
       e.preventDefault();
       this.compIndex = Number(li.dataset.i);
@@ -42,34 +86,34 @@ export class Editor {
     this.render();
   }
 
-  get value() {
+  get value(): string {
     return this.ta.value;
   }
 
-  set value(v) {
+  set value(v: string) {
     this.ta.value = v;
     this.render();
   }
 
-  focus() {
+  focus(): void {
     this.ta.focus();
   }
 
   /** Selected text, or '' */
-  selection() {
+  selection(): string {
     return this.ta.value.slice(this.ta.selectionStart, this.ta.selectionEnd);
   }
 
-  selectionRange() {
+  selectionRange(): { start: number; end: number } {
     return { start: this.ta.selectionStart, end: this.ta.selectionEnd };
   }
 
   /** The statement under the cursor: { sql, start, end } */
-  currentStatement() {
+  currentStatement(): Statement | null {
     return statementAt(this.ta.value, this.ta.selectionStart);
   }
 
-  insert(text) {
+  insert(text: string): void {
     this.ta.focus();
     const { selectionStart: s, selectionEnd: e } = this.ta;
     this.ta.setRangeText(text, s, e, 'end');
@@ -77,26 +121,26 @@ export class Editor {
   }
 
   /** Replace the whole text through the undo stack where supported. */
-  replaceAll(text) {
+  replaceAll(text: string): void {
     this.ta.focus();
     this.ta.select();
     if (!document.execCommand?.('insertText', false, text)) this.ta.value = text;
     this.changed();
   }
 
-  highlightRange(start, end, cls = 'ed-err') {
+  highlightRange(start: number | null, end = 0, cls = 'ed-err'): void {
     this.errorRange = start === null ? null : { start, end, cls };
     this.render();
   }
 
-  changed() {
+  changed(): void {
     this.errorRange = null;
     this.render();
     this.opts.onChange?.(this.ta.value);
     this.markStatement();
   }
 
-  render() {
+  render(): void {
     const text = this.ta.value;
     const schema = this.opts.schema?.();
     let html = highlight(text, schema?.names);
@@ -116,14 +160,14 @@ export class Editor {
     this.syncScroll();
   }
 
-  syncScroll() {
+  syncScroll(): void {
     this.hl.style.transform = `translate(${-this.ta.scrollLeft}px, ${-this.ta.scrollTop}px)`;
     this.stmtMark.style.transform = `translateY(${-this.ta.scrollTop}px)`;
     this.lines.style.transform = `translateY(${-this.ta.scrollTop}px)`;
   }
 
   /** Shade the lines of the statement under the cursor (what Ctrl+Enter runs). */
-  markStatement() {
+  markStatement(): void {
     const text = this.ta.value;
     if (this.ta.selectionStart !== this.ta.selectionEnd || !text.trim()) {
       this.stmtMark.style.display = 'none';
@@ -142,12 +186,12 @@ export class Editor {
     this.stmtMark.style.height = (l1 - l0 + 1) * lh + 'px';
   }
 
-  lineHeight() {
+  lineHeight(): number {
     if (!this._lh) this._lh = parseFloat(getComputedStyle(this.ta).lineHeight) || 20;
     return this._lh;
   }
 
-  onKey(e) {
+  onKey(e: KeyboardEvent): void {
     const ta = this.ta;
     const mod = e.ctrlKey || e.metaKey;
     if (!this.popup.hidden) {
@@ -197,13 +241,13 @@ export class Editor {
       e.preventDefault();
       const s = ta.selectionStart;
       const lineStart = ta.value.lastIndexOf('\n', s - 1) + 1;
-      const indent = /^[ \t]*/.exec(ta.value.slice(lineStart, s))[0];
+      const indent = /^[ \t]*/.exec(ta.value.slice(lineStart, s))?.[0] ?? '';
       const before = ta.value.slice(lineStart, s).trimEnd();
       const extra = before.endsWith('(') ? '  ' : '';
       document.execCommand?.('insertText', false, '\n' + indent + extra) || this.insert('\n' + indent + extra);
       return;
     }
-    const pairs = { '(': ')', "'": "'", '"': '"' };
+    const pairs: Record<string, string> = { '(': ')', "'": "'", '"': '"' };
     if (pairs[e.key] && !mod) {
       const { selectionStart: s, selectionEnd: en } = ta;
       if (s !== en) {
@@ -228,7 +272,7 @@ export class Editor {
     }
   }
 
-  indent(outdent) {
+  indent(outdent: boolean): void {
     const ta = this.ta;
     const v = ta.value;
     let { selectionStart: s, selectionEnd: e } = ta;
@@ -245,7 +289,7 @@ export class Editor {
     this.changed();
   }
 
-  toggleComment() {
+  toggleComment(): void {
     const ta = this.ta;
     const v = ta.value;
     const { selectionStart: s, selectionEnd: e } = ta;
@@ -264,20 +308,20 @@ export class Editor {
 
   // ---------------------------------------------------------------- completion
 
-  candidates(explicit) {
+  candidates(explicit: boolean): { items: CompletionItem[]; start: number } {
     const v = this.ta.value;
     const pos = this.ta.selectionStart;
     const { word, start, qualifier } = wordBefore(v, pos);
-    const schema = this.opts.schema?.() ?? { names: new Set(), tables: new Map() };
+    const schema: EditorSchema = this.opts.schema?.() ?? { names: new Set(), tables: new Map() };
     const w = word.toLowerCase();
-    const items = [];
-    const seen = new Set();
-    const add = (label, kind, detail = '') => {
+    const items: CompletionItem[] = [];
+    const seen = new Set<string>();
+    const add = (label: string, kind: string, detail: string | null | undefined = '') => {
       const key = kind + ':' + label.toLowerCase();
       if (seen.has(key) || !label.toLowerCase().startsWith(w)) return;
       if (!explicit && label.toLowerCase() === w) return;
       seen.add(key);
-      items.push({ label, kind, detail });
+      items.push({ label, kind, detail: detail ?? '' });
     };
     if (qualifier !== null) {
       const st = statementAt(v, pos);
@@ -300,7 +344,7 @@ export class Editor {
     return { items: items.slice(0, 60), start };
   }
 
-  showComplete(explicit) {
+  showComplete(explicit: boolean): void {
     const { items, start } = this.candidates(explicit);
     if (!items.length) {
       this.hideComplete();
@@ -327,7 +371,7 @@ export class Editor {
     this.popup.hidden = false;
   }
 
-  charWidth() {
+  charWidth(): number {
     if (!this._cw) {
       const s = document.createElement('span');
       s.textContent = 'MMMMMMMMMM';
@@ -339,14 +383,14 @@ export class Editor {
     return this._cw;
   }
 
-  renderComplete() {
+  renderComplete(): void {
     this.popup.innerHTML = this.compItems
       .map((it, i) => `<div class="ac-item${i === this.compIndex ? ' active' : ''}" data-i="${i}" role="option"><span class="ac-kind ac-${it.kind}">${it.kind}</span><span class="ac-label">${esc(it.label)}</span><span class="ac-detail">${esc(it.detail || '')}</span></div>`)
       .join('');
     this.popup.querySelector('.active')?.scrollIntoView({ block: 'nearest' });
   }
 
-  acceptComplete() {
+  acceptComplete(): void {
     const it = this.compItems[this.compIndex];
     if (!it) return;
     const ta = this.ta;
@@ -358,21 +402,21 @@ export class Editor {
     this.changed();
   }
 
-  hideComplete() {
+  hideComplete(): void {
     this.popup.hidden = true;
   }
 }
 
-function findTable(tables, name) {
+function findTable(tables: Map<string, SchemaTable>, name: string): SchemaTable | null {
   const n = unquote(name).toLowerCase();
   for (const [t, cols] of tables) if (t.toLowerCase() === n) return cols;
   return null;
 }
 
 /** "Mod+Enter", "Shift+Mod+Enter", "F5", "Mod+E" */
-function matchCombo(e, combo) {
+function matchCombo(e: KeyboardEvent, combo: string): boolean {
   const parts = combo.split('+');
-  const key = parts.pop();
+  const key = parts.pop() ?? '';
   const want = new Set(parts.map((p) => p.toLowerCase()));
   const mod = e.ctrlKey || e.metaKey;
   if (want.has('mod') !== mod) return false;
