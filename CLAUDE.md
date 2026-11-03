@@ -7,7 +7,7 @@ file is the shared starting point. smaltdb has the matching file (stenhoor/smalt
 ## Commands
 
 ```bash
-npm install            # postinstall copies the smaltdb engine into vendor/smaltdb/ and compiles the TypeScript
+npm install            # postinstall copies smaltdb and smaltkit into vendor/ and compiles the TypeScript
 npm run dev            # serve and recompile on change
 npm run typecheck      # tsc --noEmit, strict (CI runs it)
 npm run serve          # compile once, then the workbench, http://localhost:8080 (COOP/COEP on; --no-isolation to drop it,
@@ -56,9 +56,12 @@ npm install --no-save playwright && npx playwright install --with-deps chromium
   [stenhoor/smalt-brand](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md). Change assets there and sync
   `brand/`. Build colours from its tokens (`--primary`, `--text-2`, `--syn-*`, …), never hand-picked hex values, and
   follow its voice: say what smaltui is, never what it isn't.
-- **smaltkit:** shared code is planned to move to a `smaltkit` repository, later including the SQL editor and the
-  virtualized grid ([smaltbi ADR 0005](https://github.com/stenhoor/smaltbi/blob/main/docs/adr/0005-smaltkit-and-smalt-brand.md)).
-  Flag large changes to `app/editor.js` or `app/grid.js`.
+- **smaltkit:** code shared with smaltbi lives in [stenhoor/smaltkit](https://github.com/stenhoor/smaltkit), pinned
+  to a commit in package.json (`github:stenhoor/smaltkit#<commit>`) until it is on npm, and imported from
+  `vendor/smaltkit/` (see [smaltkit](README.md#smaltkit)). Change shared code there, then bump the pin here in its own
+  PR. The SQL editor and the virtualized grid are planned to move next
+  ([smaltbi ADR 0005](https://github.com/stenhoor/smaltbi/blob/main/docs/adr/0005-smaltkit-and-smalt-brand.md)): flag
+  large changes to `app/editor.ts` or `app/grid.ts`.
 - **Deploys:** merging to `main` redeploys https://stenhoor.github.io/smaltui/, so check the site afterwards. A green
   "Deploy to GitHub Pages" run does not prove the site works. If Pages is also set to publish from a branch, GitHub's
   own `pages-build-deployment` run can finish last and replace the built site with the raw repo; this took the smaltbi

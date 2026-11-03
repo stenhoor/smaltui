@@ -60,7 +60,7 @@ full workbench is at [`/workbench/`](https://stenhoor.github.io/smaltui/workbenc
 ## Run it locally
 
 ```bash
-npm install          # copies the smaltdb engine into vendor/smaltdb/ and compiles the TypeScript
+npm install          # copies smaltdb and smaltkit into vendor/ and compiles the TypeScript
 ```
 
 ```bash
@@ -75,6 +75,20 @@ watching.
 `scripts/serve.mjs` sends COOP/COEP headers, so the page is cross-origin isolated: smaltdb then uses parallel
 reader workers and can interrupt running statements. It also answers Range and HEAD requests, which smaltdb uses for
 Parquet and for freshness checks. OPFS needs a secure context; `localhost` counts.
+
+## smaltkit
+
+Code shared with [smaltbi](https://github.com/stenhoor/smaltbi) lives in [smaltkit](https://github.com/stenhoor/smaltkit).
+Until smaltkit is on npm, `package.json` pins it to a commit (`"smaltkit": "github:stenhoor/smaltkit#<commit>"`); npm
+clones that commit and builds it. A postinstall step (`scripts/vendor-smaltkit.mjs`) copies its modules into
+`vendor/smaltkit/`, and the pages import them from there (`../vendor/smaltkit/urls.js`), with no bundler; the `.d.ts`
+files come along so `tsc` types those imports. To move to a newer smaltkit:
+
+```bash
+npm install github:stenhoor/smaltkit#<commit>
+```
+
+Once smaltkit is published, the dependency becomes a version range (`"smaltkit": "^0.1.0"`) and nothing else changes.
 
 ## The smaltdb engine
 
@@ -196,15 +210,15 @@ app/grid.ts           virtualized data grid
 app/sql.ts            tokenizer, statement splitter, parameter scanner, formatter
 app/engine.ts         engine loading (vendor / npm / URL) and the OPFS database catalog; smaltdb types
 app/env.ts            environment manifests: types, load, export, SQL dump
-app/urls.ts           data-URL rewriting (GitHub, Hugging Face) and CORS hints
 app/store.ts          localStorage prefs/history, IndexedDB file handles
 app/globals.d.ts      File System Access API declarations missing from TypeScript's DOM library
 site/demo.ts          the landing page's live console
 (app|site)/*.js       compiled output (npm run compile; not committed)
 vendor/smaltdb/       engine, copied from node_modules/smaltdb on install (not committed)
+vendor/smaltkit/      shared modules (data-URL rewriting, CORS hints), copied from node_modules/smaltkit on install (not committed)
 envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)
-scripts/              compile (TypeScript → .js), vendor (npm → vendor/), brand sync, build and serve scripts
+scripts/              compile (TypeScript → .js), vendor (smaltdb and smaltkit → vendor/), brand sync, build and serve scripts
 test/e2e.mjs          end-to-end test in headless Chromium (npm test)
 test/smoke.mjs        post-deploy check of a live site
 ```

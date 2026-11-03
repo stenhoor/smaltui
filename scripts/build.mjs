@@ -26,8 +26,8 @@ const noTs = (src) => !/\.ts$/.test(src);
 mkdirSync(join(out, 'workbench'), { recursive: true });
 for (const f of ['index.html', 'app', 'vendor', 'envs', 'brand']) cpSync(join(root, f), join(out, 'workbench', f), { recursive: true, filter: noTs });
 cpSync(join(root, 'site'), out, { recursive: true, filter: noTs });
-// The landing page imports the workbench modules as ../app/ in the repo; in the site they live at ./workbench/app/.
-writeFileSync(join(out, 'demo.js'), readFileSync(join(out, 'demo.js'), 'utf8').replace(/(["'])\.\.\/app\//g, '$1./workbench/app/'));
+// The landing page imports the workbench modules as ../app/ and ../vendor/ in the repo; in the site they live under ./workbench/.
+writeFileSync(join(out, 'demo.js'), readFileSync(join(out, 'demo.js'), 'utf8').replace(/(["'])\.\.\/(app|vendor)\//g, '$1./workbench/$2/'));
 for (const f of ['_headers', 'LICENSE']) if (existsSync(join(root, f))) cpSync(join(root, f), join(out, f));
 writeFileSync(join(out, '.nojekyll'), '');
 

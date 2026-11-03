@@ -6,7 +6,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/vendor-smaltdb.mjs && node scripts/compile.mjs",
+    "postinstall": "node scripts/vendor-smaltdb.mjs && node scripts/vendor-smaltkit.mjs && node scripts/compile.mjs",
     "compile": "node scripts/compile.mjs",
     "typecheck": "tsc -p .",
     "dev": "node scripts/serve.mjs --watch",
@@ -22,6 +22,7 @@
     "typescript": "~5.9"
   },
   "dependencies": {
-    "smaltdb": "^0.8.3"
+    "smaltdb": "^0.8.3",
+    "smaltkit": "github:stenhoor/smaltkit#727f16f38b858012b4d71a484beb6aff4aba1862"
   }
 }

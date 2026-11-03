@@ -5,7 +5,7 @@ import { Editor, type EditorSchema, type SchemaTable } from '../app/editor.js';
 import { Grid, type Row } from '../app/grid.js';
 import { fetchManifest, applyManifest } from '../app/env.js';
 import { statementAt, returnsRows, quoteIdent } from '../app/sql.js';
-import { corsHint } from '../app/urls.js';
+import { corsHint } from '../vendor/smaltkit/urls.js';
 
 const ENV = 'workbench/envs/demo/env.json';
 const MAX_ROWS = 500;

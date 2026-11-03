@@ -3,7 +3,7 @@ import { loadEngine, engineSpec, setEngineSpec, opfsAvailable, listOpfsDatabases
 import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, quoteLiteral, tableNameFrom, formatSql, leadingKeyword, type ParamSlot, type SqlValue, type Statement } from './sql.js';
 import { Editor, type EditorSchema, type SchemaTable } from './editor.js';
 import { Grid, formatValue, plainValue, exportRows, type Column, type ExportFormat, type Row, type SortDir, type Value } from './grid.js';
-import { normalizeDataUrl, corsHint } from './urls.js';
+import { normalizeDataUrl, corsHint } from '../vendor/smaltkit/urls.js';
 import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
 import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet, type DataFormat, type Manifest, type ReaderOptions } from './env.js';
 
