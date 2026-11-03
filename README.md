@@ -106,7 +106,8 @@ cross-origin engine worker is started through a same-origin blob module, so a CD
 
 ## Deploy
 
-`npm ci && npm run build` assembles the site in `dist/`. Any static host works. `npm run preview` builds it and
+`npm ci && npm run build` assembles the site in `dist/`. Any static host works. The build stamps every CSS and JS reference with a
+version (`styles.css?v=<hash>`), so after a deploy browsers fetch the new files instead of reusing cached ones. `npm run preview` builds it and
 serves it locally.
 
 ```
