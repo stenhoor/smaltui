@@ -35,7 +35,9 @@ full workbench is at [`/workbench/`](https://stenhoor.github.io/smaltui/workbenc
   - *Link an external table:* `CREATE EXTERNAL TABLE` over a URL or a local file (CSV, TSV, JSON, NDJSON or
     Parquet; Parquet over HTTP is read with Range requests, only the columns and row groups a query needs), with optional connections, auth
     headers (kept in memory only) and a local materialized-view cache. The SQL is shown and can be edited before it
-    runs. On Chromium, local files stay linked across reloads (File System Access handles in IndexedDB). Elsewhere,
+    runs. Known issue: linking a Parquet file from a host that compresses responses (GitHub Pages, for one) fails
+    with `footer != PAR1`, because smaltdb takes the file size from the compressed `Content-Length`
+    (stenhoor/smaltdb#32). Import such files instead. On Chromium, local files stay linked across reloads (File System Access handles in IndexedDB). Elsewhere,
     the sidebar asks you to attach them again.
   - *URLs from other sites* must allow cross-origin reads (CORS). Links copied from GitHub (`github.com/…/blob/…`
     or `…/raw/…`, e.g. TidyTuesday datasets) and Hugging Face (`…/blob/…`) are rewritten to their raw-file URLs
@@ -153,7 +155,7 @@ https://your.host/smaltui/workbench/?env=envs/demo/env.json
   dump** writes plain SQL.
 
 `envs/demo/` is a small tea-and-coffee shop with sample data. It has tables, indexes, a view, a materialized view,
-a linked CSV and saved queries. The welcome tab opens it.
+a linked CSV, sales data imported from a Parquet file and saved queries. The welcome tab opens it.
 
 ## Layout
 

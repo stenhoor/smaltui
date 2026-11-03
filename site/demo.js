@@ -39,8 +39,8 @@ LIMIT 10;`,
   },
   {
     title: 'Parquet file',
-    note: 'reads only the columns it needs',
-    sql: `-- regional_sales is a Parquet file linked as an external table
+    note: 'data imported from Parquet',
+    sql: `-- regional_sales was imported from a Parquet file
 SELECT region,
        count(*) AS sales,
        sum(amount) AS total,
