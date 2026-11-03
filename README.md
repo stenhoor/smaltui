@@ -208,14 +208,14 @@ app/main.ts           application: tabs, explorer, query runner, table viewer, i
 app/editor.ts         SQL editor (highlight overlay, completion, shortcuts)
 app/grid.ts           virtualized data grid
 app/sql.ts            tokenizer, statement splitter, parameter scanner, formatter
-app/engine.ts         engine loading (vendor / npm / URL) and the OPFS database catalog; smaltdb types
+app/engine.ts         smaltui's engine settings (vendor folder, remembered choice) for smaltkit's loader
 app/env.ts            environment manifests: types, load, export, SQL dump
 app/store.ts          localStorage prefs/history, IndexedDB file handles
 app/globals.d.ts      File System Access API declarations missing from TypeScript's DOM library
 site/demo.ts          the landing page's live console
 (app|site)/*.js       compiled output (npm run compile; not committed)
 vendor/smaltdb/       engine, copied from node_modules/smaltdb on install (not committed)
-vendor/smaltkit/      shared modules (data-URL rewriting, CORS hints), copied from node_modules/smaltkit on install (not committed)
+vendor/smaltkit/      shared modules (engine loader and OPFS catalog, data-URL rewriting, CORS hints), copied from node_modules/smaltkit on install (not committed)
 envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)
 scripts/              compile (TypeScript → .js), vendor (smaltdb and smaltkit → vendor/), brand sync, build and serve scripts
