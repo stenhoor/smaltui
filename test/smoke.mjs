@@ -50,7 +50,7 @@ async function check(browser) {
     if (errs.length) throw new Error(`workbench demo: ${errs.join(' | ')}`);
     await checkBrand(page, 'workbench');
     const engine = await page.locator('#stEngine').textContent();
-    if (/vendor\/ missing/.test(engine)) throw new Error(`workbench engine: ${engine} (the built site is not what is being served)`);
+    if (/vendor copy missing/.test(engine)) throw new Error(`workbench engine: ${engine} (the built site is not what is being served)`);
     if (pageErrors.length) throw new Error(`page errors: ${pageErrors.join(' | ')}`);
     return `landing: "${landing}"; workbench: demo loaded; engine: ${engine.trim()}`;
   } finally {
