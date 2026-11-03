@@ -202,7 +202,7 @@ try {
 
   await step('GitHub page links are rewritten to raw files; CORS errors explain themselves', async () => {
     const r = await page.evaluate(async () => {
-      const { normalizeDataUrl, corsHint } = await import('/app/urls.js');
+      const { normalizeDataUrl, corsHint } = await import('/vendor/smaltkit/urls.js');
       const blob = 'https://github.com/rfordatascience/tidytuesday/blob/main/data/2024/2024-01-23/english_education.csv';
       return {
         blob: normalizeDataUrl(blob).url,

@@ -23,7 +23,7 @@
 // the source at query time (it must be reachable from the browser: same origin or CORS-enabled).
 import type { Database } from './engine.js';
 import { quoteIdent, quoteLiteral, type SqlValue } from './sql.js';
-import { normalizeDataUrl } from './urls.js';
+import { normalizeDataUrl } from '../vendor/smaltkit/urls.js';
 
 export type DataFormat = 'csv' | 'tsv' | 'json' | 'ndjson' | 'parquet';
 
