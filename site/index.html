@@ -51,7 +51,7 @@
     <section class="try" id="try" aria-labelledby="tryTitle">
       <div class="section-head">
         <h2 id="tryTitle">Try it here</h2>
-        <p>This console runs a demo tea-and-coffee shop: tables, a view, a materialized view, a linked CSV and a linked Parquet file. It is loaded into an in-memory smaltdb in your browser. Pick an example or write your own SQL, then press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.</p>
+        <p>This console runs a demo tea-and-coffee shop: tables, a view, a materialized view, a linked CSV and sales data imported from a Parquet file. It is loaded into an in-memory smaltdb in your browser. Pick an example or write your own SQL, then press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.</p>
       </div>
       <div class="console">
         <aside class="examples" aria-label="Example queries">
@@ -99,8 +99,10 @@
   "steps": [
     { "sqlFile": "schema.sql" },
     { "import": "data/orders.csv", "table": "orders" },
-    { "link": "data/regional_sales.parquet",
-      "table": "regional_sales", "format": "parquet" }
+    { "import": "data/regional_sales.parquet",
+      "table": "regional_sales" },
+    { "link": "data/exchange_rates.csv",
+      "table": "exchange_rates" }
   ],
   "queries": [{ "title": "Revenue", "sql": "SELECT …" }]
 }</code></pre>

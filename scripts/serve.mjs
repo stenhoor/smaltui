@@ -1,8 +1,13 @@
-// Minimal static server for local use: node scripts/serve.mjs [dir] [--port 8080] [--no-isolation]
+// Minimal static server for local use: node scripts/serve.mjs [dir] [--port 8080] [--no-isolation] [--gzip]
 // Sends COOP/COEP headers by default so the page is cross-origin isolated (smaltdb then uses
 // parallel reader workers and can interrupt running statements). OPFS needs a secure context,
 // which localhost is.
-import { createReadStream, statSync } from 'node:fs';
+//
+// --gzip compresses like GitHub Pages does: a full GET or HEAD sent with Accept-Encoding: gzip gets a gzipped
+// body and the *compressed* Content-Length, while Range requests return uncompressed bytes of the file.
+// Tests use it to catch code that takes a file's size from a compressed response (smaltui#7).
+import { createReadStream, readFileSync, statSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
 
@@ -12,6 +17,7 @@ const opt = (n, d) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : d);
 const root = resolve(args.find((a, i) => !a.startsWith('--') && !(args[i - 1] ?? '').startsWith('--port')) ?? '.');
 const port = Number(opt('--port', process.env.PORT ?? 8080));
 const isolate = !flag('--no-isolation');
+const gzip = flag('--gzip');
 const types = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
@@ -54,6 +60,12 @@ createServer((req, res) => {
       code = 206;
       headers['Content-Range'] = `bytes ${start}-${end}/${st.size}`;
     }
+    if (gzip && code === 200 && st.size > 0 && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '')) {
+      const body = gzipSync(readFileSync(path));
+      Object.assign(headers, { 'Content-Encoding': 'gzip', 'Content-Length': body.length, Vary: 'Accept-Encoding' });
+      res.writeHead(200, headers);
+      return void res.end(req.method === 'HEAD' ? undefined : body);
+    }
     headers['Content-Length'] = st.size === 0 ? 0 : end - start + 1;
     res.writeHead(code, headers);
     if (req.method === 'HEAD' || st.size === 0) return void res.end();
@@ -61,4 +73,4 @@ createServer((req, res) => {
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain' }).end('not found');
   }
-}).listen(port, () => console.log(`smaltui: http://localhost:${port}/  (root ${root}${isolate ? ', cross-origin isolated' : ''})`));
+}).listen(port, () => console.log(`smaltui: http://localhost:${port}/  (root ${root}${isolate ? ', cross-origin isolated' : ''}${gzip ? ', gzip like GitHub Pages' : ''})`));
