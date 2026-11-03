@@ -17,6 +17,18 @@ if (!/^https?:\/\//.test(base)) {
 const attempts = Number(process.env.SMOKE_ATTEMPTS ?? 5);
 const delayMs = Number(process.env.SMOKE_DELAY_MS ?? 30000);
 
+// The smalt brand is applied: brand tokens are loaded and exactly one header logo shows (light, dark and compact
+// versions are switched by CSS, so a missing or stale stylesheet shows several).
+async function checkBrand(page, where) {
+  const b = await page.evaluate(() => ({
+    primary: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim(),
+    logos: [...document.querySelectorAll('.brand img')].filter((i) => i.offsetParent !== null).map((i) => i.src.split('/').pop()),
+  }));
+  if (!b.primary) throw new Error(`${where}: brand tokens not loaded (no --primary)`);
+  if (b.logos.length !== 1) throw new Error(`${where}: ${b.logos.length} header logos visible (${b.logos.join(', ') || 'none'})`);
+  return b;
+}
+
 async function check(browser) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
@@ -29,12 +41,14 @@ async function check(browser) {
     const landing = (await page.locator('#consoleStatus').textContent()).trim();
     if (!/rows? in/.test(landing)) throw new Error(`landing console: ${landing}`);
     if (!(await page.locator('#gridHost tbody tr[data-row]').count())) throw new Error('landing console: no rows shown');
+    await checkBrand(page, 'landing');
 
     // Workbench: the demo environment builds without an error popup.
     await page.goto(base + 'workbench/?env=envs/demo/env.json', { waitUntil: 'load' });
     await page.waitForFunction(() => document.querySelector('.toast.ok, .toast.err'), null, { timeout: 45000 });
     const errs = await page.evaluate(() => [...document.querySelectorAll('.toast.err')].map((t) => t.textContent.trim()));
     if (errs.length) throw new Error(`workbench demo: ${errs.join(' | ')}`);
+    await checkBrand(page, 'workbench');
     const engine = await page.locator('#stEngine').textContent();
     if (/vendor\/ missing/.test(engine)) throw new Error(`workbench engine: ${engine} (the built site is not what is being served)`);
     if (pageErrors.length) throw new Error(`page errors: ${pageErrors.join(' | ')}`);

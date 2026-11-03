@@ -279,6 +279,18 @@ try {
       }));
       const shown = Object.fromEntries(brand.imgs);
       if (!shown['lockup.svg'] || !shown['powered-by-smaltdb.svg'] || !brand.icon || brand.eyebrow !== 'Small. Alternative. Query.') throw new Error('landing brand: ' + JSON.stringify(brand));
+      // Exactly one header logo shows (the light, dark and compact versions are switched by CSS).
+      const headerLogos = brand.imgs.filter(([n]) => /lockup|chevron-mark/.test(n)).length;
+      if (headerLogos !== 1) throw new Error('landing shows ' + headerLogos + ' header logos: ' + JSON.stringify(brand.imgs));
+      // Every local CSS/JS reference is versioned, so a deploy never mixes new pages with cached old assets.
+      const { readFileSync } = await import('node:fs');
+      for (const f of ['smaltui/index.html', 'smaltui/workbench/index.html']) {
+        const refs = [...readFileSync(join(out, f), 'utf8').matchAll(/<(?:link|script)\b[^>]*?\s(?:href|src)="([^"]+\.(?:css|js)[^"]*)"/g)].map((m) => m[1]).filter((u) => !/^https?:/.test(u));
+        const bare = refs.filter((u) => !/\?v=[0-9a-f]{12}$/.test(u));
+        if (!refs.length || bare.length) throw new Error(`${f}: unversioned ${JSON.stringify(bare)}`);
+      }
+      const mainJs = readFileSync(join(out, 'smaltui/workbench/app/main.js'), 'utf8');
+      if (/from\s*'\.\/[a-z]+\.js'/.test(mainJs)) throw new Error('main.js has unversioned imports');
       await page.locator('.example', { hasText: 'Parquet file' }).click();
       await page.waitForFunction(() => document.querySelectorAll('#gridHost tbody tr[data-row]').length === 3, null, { timeout: 10000 });
       const href = await page.locator('#openInWb').getAttribute('href');
