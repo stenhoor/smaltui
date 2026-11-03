@@ -16,6 +16,7 @@ npm test               # test/e2e.mjs in headless Chromium (needs Playwright, se
 node test/smoke.mjs <url>   # check a deployed site; the Pages workflow runs it after each deploy
 npm run vendor -- --from ../smaltdb   # try an unreleased smaltdb from a local checkout
 npm run vendor         # back to the npm package
+npm run brand:sync -- --ref <commit>   # update brand/ from stenhoor/smalt-brand (CI: node scripts/sync-brand.mjs --check)
 ```
 
 Playwright is not a project dependency. CI installs it before `npm test`:
@@ -30,6 +31,7 @@ npm install --no-save playwright && npx playwright install --with-deps chromium
 - `scripts/` holds the vendor, build and serve scripts. `test/e2e.mjs` is the test suite (`npm test`); it also runs
   `test/smoke.mjs`, the post-deploy check, against a local server that compresses like Pages.
 - `vendor/` and `dist/` are generated: do not edit or commit them.
+- `brand/` is a pinned, verbatim copy of smalt-brand assets (committed; CI checks it): never edit it by hand.
 - For details, read the [Layout](README.md#layout), [Environments](README.md#environments) and
   [Deploy](README.md#deploy) sections of the README instead of copying them here.
 
@@ -46,9 +48,10 @@ npm install --no-save playwright && npx playwright install --with-deps chromium
   plugins ([ADR 0012](https://github.com/stenhoor/smaltdb/blob/main/docs/adr/0012-plugins.md)): external tables,
   CSV/JSON import and the Parquet reader, all of which smaltui uses. Upgrade deliberately, in its own PR, and run
   `npm test`.
-- **smalt-brand:** logos, badges, colours and voice come from
-  [stenhoor/smalt-brand](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md). Use it as the source rather
-  than editing copies by hand.
+- **smalt-brand:** logos, badges, colours, type and voice come from
+  [stenhoor/smalt-brand](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md). Change assets there and sync
+  `brand/`. Build colours from its tokens (`--primary`, `--text-2`, `--syn-*`, …), never hand-picked hex values, and
+  follow its voice: say what smaltui is, never what it isn't.
 - **smaltkit:** shared code is planned to move to a `smaltkit` repository, later including the SQL editor and the
   virtualized grid ([smaltbi ADR 0005](https://github.com/stenhoor/smaltbi/blob/main/docs/adr/0005-smaltkit-and-smalt-brand.md)).
   Flag large changes to `app/editor.js` or `app/grid.js`.

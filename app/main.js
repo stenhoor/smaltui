@@ -1,4 +1,4 @@
-// smaltui — a query workbench for smaltdb that runs entirely in the browser.
+// smaltui — a SQL console for smaltdb that runs entirely in the browser.
 import { loadEngine, engineSpec, setEngineSpec, opfsAvailable, listOpfsDatabases, deleteOpfsDatabase } from './engine.js';
 import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, quoteLiteral, tableNameFrom, formatSql, leadingKeyword } from './sql.js';
 import { Editor } from './editor.js';
@@ -2086,11 +2086,12 @@ function welcomeTab() {
     init() {
       const v = app.engine?.version;
       this.el.innerHTML = `<div class="scroll-page"><div class="welcome">
-        <h2>smaltui</h2>
-        <p class="lead">A query workbench for <a href="https://github.com/stenhoor/smaltdb" target="_blank" rel="noopener">smaltdb</a>, the SQL database that runs inside your browser. Databases live in this browser's private storage (OPFS) or in memory; nothing leaves your machine unless you link a URL.</p>
+        <h2 class="welcome-mark"><img class="logo-light" src="brand/logos/smaltui/wordmark.svg" alt="smaltui" height="34"><img class="logo-dark" src="brand/logos/smaltui/wordmark-on-dark.svg" alt="smaltui" height="34"></h2>
+        <p class="tagline">Small. Alternative. Query.</p>
+        <p class="lead">A SQL console for <a href="https://smaltdb.dev" target="_blank" rel="noopener">smaltdb</a> that runs entirely in the browser. Databases live in this browser's private storage (OPFS) or in memory, and the page fetches only the files and URLs you import or link.</p>
         <div class="quick">
           <button data-q="query"><b>⌨ New query</b><span>Write SQL with highlighting, completion and bind variables.</span></button>
-          <button data-q="import"><b>⇣ Import a file</b><span>Load CSV, TSV, JSON or NDJSON into a table.</span></button>
+          <button data-q="import"><b>⇣ Import a file</b><span>Load CSV, TSV, JSON, NDJSON or Parquet into a table.</span></button>
           <button data-q="link"><b>⇄ Link a source</b><span>Query a file or URL in place as an external table.</span></button>
           <button data-q="demo"><b>★ Open the demo</b><span>A sample environment with tables, a view and saved queries.</span></button>
           <button data-q="db"><b>▤ Databases</b><span>Open, create or delete databases stored in this browser.</span></button>
@@ -2160,7 +2161,7 @@ function aboutDialog() {
   const v = app.engine?.version ?? {};
   modal({
     title: 'About smaltui',
-    body: `<p>smaltui is a static, client-side workbench for <a href="https://github.com/stenhoor/smaltdb" target="_blank" rel="noopener">smaltdb</a>. Serve the folder from any static host; every visitor gets their own databases in their own browser.</p>
+    body: `<p>smaltui is a SQL console for <a href="https://smaltdb.dev" target="_blank" rel="noopener">smaltdb</a> that runs entirely in the browser. It is a static site: serve the folder from any static host, and every visitor gets their own databases in their own browser.</p>
       <dl class="kv" style="padding:0"><dt>Engine</dt><dd>${esc(app.engine?.label ?? '—')}</dd>
       ${v.commit ? `<dt>smaltdb commit</dt><dd>${esc(v.commit)}</dd>` : ''}${v.version ? `<dt>smaltdb version</dt><dd>${esc(v.version)}</dd>` : ''}
       <dt>Cross-origin isolated</dt><dd>${crossOriginIsolated ? 'yes (parallel readers, interruptible statements)' : 'no — serve with COOP/COEP headers for parallel readers'}</dd>

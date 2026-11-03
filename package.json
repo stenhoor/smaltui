@@ -8,6 +8,7 @@
   "scripts": {
     "postinstall": "node scripts/vendor-smaltdb.mjs",
     "vendor": "node scripts/vendor-smaltdb.mjs",
+    "brand:sync": "node scripts/sync-brand.mjs",
     "build": "node scripts/build.mjs",
     "serve": "node scripts/serve.mjs",
     "preview": "node scripts/build.mjs && node scripts/serve.mjs dist",

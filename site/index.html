@@ -4,21 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>smaltui</title>
-  <meta name="description" content="smaltui is a SQL workbench for smaltdb that runs entirely in your browser. Try it live: no server, no install, your data stays on your machine.">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b5fd9'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h9' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <meta name="description" content="smaltui is a SQL console for smaltdb that runs entirely in the browser. Try it live: the database runs in a Web Worker on the page and keeps your data in your browser.">
+  <link rel="icon" type="image/svg+xml" href="workbench/brand/logos/smaltui/favicon-32.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&family=Martian+Mono:wght@400;600&display=swap">
   <script>
     // Links made for the workbench (?env=…, ?db=…) used to point at the site root: forward them.
     if (/[?&](env|db|engine|storage|sql)=/.test(location.search)) location.replace('workbench/' + location.search + location.hash);
     try { const t = JSON.parse(localStorage.getItem('smaltui.theme')); if (t) document.documentElement.dataset.theme = t; } catch {}
   </script>
+  <link rel="stylesheet" href="workbench/brand/tokens/tokens.css">
   <link rel="stylesheet" href="workbench/app/styles.css">
   <link rel="stylesheet" href="site.css">
 </head>
 <body class="landing">
   <header class="site-head">
     <a class="brand" href="./" aria-label="smaltui home">
-      <svg viewBox="0 0 32 32" width="24" height="24" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M9 11h14M9 16h14M9 21h9" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>
-      <span>smalt<b>ui</b></span>
+      <span class="brand-full"><img class="logo-light" src="workbench/brand/logos/smaltui/lockup.svg" alt="smaltui" height="26"><img class="logo-dark" src="workbench/brand/logos/smaltui/lockup-on-dark.svg" alt="smaltui" height="26"></span><span class="brand-compact"><img class="logo-light" src="workbench/brand/logos/smaltui/chevron-mark.svg" alt="smaltui" height="26"><img class="logo-dark" src="workbench/brand/logos/smaltui/chevron-mark-on-dark.svg" alt="smaltui" height="26"></span>
     </a>
     <nav class="site-nav">
       <a href="#try">Try it</a>
@@ -32,9 +35,9 @@
 
   <main>
     <section class="hero">
-      <p class="eyebrow">A query workbench for <a href="https://github.com/stenhoor/smaltdb" rel="noopener">smaltdb</a></p>
-      <h1>A SQL workbench that runs entirely in your browser</h1>
-      <p class="lede">smaltui is an object explorer, a query editor and data grids for smaltdb, an embedded SQL engine for the web. There is no server and nothing to install. The database runs in a Web Worker on this page, and your data stays on your machine.</p>
+      <p class="eyebrow">Small. Alternative. Query.</p>
+      <h1>A SQL console for smaltdb that runs entirely in the browser</h1>
+      <p class="lede">smaltui is an object explorer, a query editor and data grids for <a href="https://smaltdb.dev" rel="noopener">smaltdb</a>, a fast alternative database for the browser. The database runs in a Web Worker on this page and keeps your data in your browser, in its private storage (OPFS) or in memory.</p>
       <div class="cta">
         <a class="btn primary big" href="workbench/?env=envs/demo/env.json">Open the demo workbench</a>
         <a class="btn big" href="#try">Run a query below</a>
@@ -82,7 +85,7 @@
         <article><h3>Data grids</h3><p>Virtualized results that are fetched on demand. Browse tables with paging, sorting and a WHERE filter. Edit cells and add or delete rows in tables with a primary key.</p></article>
         <article><h3>Import &amp; link</h3><p>Load CSV, TSV, JSON, NDJSON or Parquet into a table. Or link a file or URL as an external table that is read in place.</p></article>
         <article><h3>Environments</h3><p>A JSON manifest builds a database when the page opens: its schema, data, linked sources and saved queries. Share a link and others get the same workspace.</p></article>
-        <article><h3>Private by default</h3><p>Databases live in your browser's private storage (OPFS) or in memory. Nothing is uploaded; the only data that leaves the page is what you choose to fetch from a URL.</p></article>
+        <article><h3>Your data stays in your browser</h3><p>Databases live in your browser's private storage (OPFS) or in memory. The page fetches only the files and URLs you import or link.</p></article>
       </div>
     </section>
 
@@ -116,7 +119,10 @@
   </main>
 
   <footer class="site-foot">
-    <span>smaltui · MIT · <span id="footEngine">smaltdb</span></span>
+    <span class="foot-left">
+      <a class="powered" href="https://smaltdb.dev" rel="noopener"><img class="logo-light" src="workbench/brand/badges/powered-by-smaltdb.svg" alt="Powered by smaltdb" width="172" height="28"><img class="logo-dark" src="workbench/brand/badges/powered-by-smaltdb-on-dark.svg" alt="Powered by smaltdb" width="172" height="28"></a>
+      <span>smaltui · MIT · <span id="footEngine">smaltdb</span></span>
+    </span>
     <span><a href="https://github.com/stenhoor/smaltui" rel="noopener">smaltui on GitHub</a> · <a href="https://github.com/stenhoor/smaltdb" rel="noopener">smaltdb</a> · <a href="https://www.npmjs.com/package/smaltdb" rel="noopener">npm</a></span>
   </footer>
 
