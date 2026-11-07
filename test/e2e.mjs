@@ -284,7 +284,10 @@ try {
       }
       // Light and dark versions are switched by CSS: one of each badge shows.
       if (home.imgs.filter(([n]) => /-on-dark\.svg$/.test(n)).length) throw new Error('home (light) shows dark badges: ' + JSON.stringify(home.imgs));
-      if (!(await page.locator('#consoleFrame').count())) throw new Error('home: no live console');
+      // The home page embeds no demo; the Demo nav item opens the workbench (smalt-brand BRAND.md, rule 12).
+      if (await page.locator('iframe').count()) throw new Error('home: embeds a demo');
+      const demo = await page.locator('.VPNavBarMenu a').first().evaluate((a) => [a.textContent.trim(), a.getAttribute('href')]);
+      if (demo[0] !== 'Demo' || !/workbench\/\?env=envs\/demo\/env\.json$/.test(demo[1] ?? '')) throw new Error('home: first nav item is not Demo -> workbench: ' + JSON.stringify(demo));
       // The live console (embedded in the home page) runs its first example.
       await page.goto(siteBase + 'console.html');
       await page.waitForFunction(() => /rows? in|Could not|could not/.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 20000 });

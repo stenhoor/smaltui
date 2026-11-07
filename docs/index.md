@@ -4,7 +4,7 @@ layout: home
 hero:
   name: 'sm<span class="alt">alt</span><span class="suffix tool">ui</span>'
   text: Small. Alternative. Query.
-  tagline: A SQL console for smaltdb that runs entirely in the browser.
+  tagline: A query workbench for smaltdb that runs entirely in the browser.
   image:
     light: /logos/smaltui/chevron-mark.svg
     dark: /logos/smaltui/chevron-mark-on-dark.svg
@@ -14,9 +14,6 @@ hero:
       text: Open the workbench
       link: /workbench/?env=envs/demo/env.json
       target: _self
-    - theme: alt
-      text: Try the live console
-      link: '#demo'
     - theme: alt
       text: Getting started
       link: /guide/
@@ -39,16 +36,6 @@ features:
     link: /guide/environments
     linkText: Environments
 ---
-
-## Try it here {#demo}
-
-A demo tea-and-coffee shop: tables, a view, a materialized view, a linked CSV and sales data imported from a Parquet
-file, loaded into an in-memory smaltdb in your browser. Pick an example or write your own SQL, then press
-<kbd>Ctrl</kbd>+<kbd>Enter</kbd>.
-
-<div class="su-demo"><iframe id="consoleFrame" title="Live SQL console on the demo shop" src="./console.html" loading="lazy"></iframe></div>
-
-<p class="su-demo-links"><a href="./console.html" target="_self">Open the console full screen ↗</a> · <a href="./workbench/?env=envs/demo/env.json" target="_self">The demo in the workbench ↗</a> · <a href="./workbench/" target="_self">Start with an empty database ↗</a></p>
 
 ## Your data stays in your browser
 

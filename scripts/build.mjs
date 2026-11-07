@@ -2,7 +2,7 @@
 //
 //   dist/                                       the product site: docs/, built with VitePress on the smaltworks docs
 //                                               theme (brand/themes/vitepress), as smaltworks.dev and smaltbi are
-//   dist/console.html, console.css, demo.js     the live SQL console (from site/), embedded in the home page
+//   dist/console.html, console.css, demo.js     the live SQL console (from site/), a page of its own
 //   dist/workbench/                             the full workbench: index.html, app/, vendor/, envs/, brand/
 //
 // The site's base is /smaltui/ (DOCS_BASE overrides it), so serve the folder at that path: `npm run preview` does.

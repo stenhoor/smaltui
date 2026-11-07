@@ -7,12 +7,12 @@ import { smaltworksMenu, smaltworksFooter } from '../../brand/themes/vitepress/s
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = 'https://github.com/stenhoor/smaltui';
 // Served at stenhoor.github.io/smaltui/. scripts/build.mjs builds the site with this base, and puts the workbench
-// (workbench/) and the live console (console.html) beside it.
+// (workbench/, the Demo) and the standalone live console (console.html) beside it.
 const base = process.env.DOCS_BASE ?? '/smaltui/';
 
 export default defineConfig({
   title: 'smaltui',
-  description: 'A SQL console for smaltdb that runs entirely in the browser.',
+  description: 'A query workbench for smaltdb that runs entirely in the browser.',
   base,
   cleanUrls: true,
   lastUpdated: false,
@@ -33,8 +33,8 @@ export default defineConfig({
     logo: { light: '/logos/smaltui/lockup.svg', dark: '/logos/smaltui/lockup-on-dark.svg', alt: 'smaltui' },
     siteTitle: false,
     nav: [
+      { text: 'Demo', link: '/workbench/?env=envs/demo/env.json', target: '_self' },
       { text: 'Guide', link: '/guide/' },
-      { text: 'Workbench', link: '/workbench/?env=envs/demo/env.json', target: '_self' },
       smaltworksMenu(),
     ],
     sidebar: [
