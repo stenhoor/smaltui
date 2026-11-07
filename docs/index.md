@@ -11,13 +11,8 @@ hero:
     alt: smaltui
   actions:
     - theme: brand
-      text: Open the workbench
-      link: /workbench/?env=envs/demo/env.json
-      target: _self
-    - theme: alt
       text: Getting started
       link: /guide/
-
 features:
   - title: Object explorer
     details: Tables, views, materialized views, external tables and connections, with columns and keys. Right-click an object to script SELECT, INSERT or DDL, count rows, refresh or drop it.
