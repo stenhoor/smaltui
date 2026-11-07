@@ -26,7 +26,13 @@ if (!existsSync(join(root, 'vendor/smaltdb/smaltdb.js'))) {
 await compile({ quiet: true });
 rmSync(out, { recursive: true, force: true });
 // VitePress first: it empties its output folder. Its assets are content-hashed already.
-execFileSync(process.execPath, [join(root, 'node_modules/vitepress/bin/vitepress.js'), 'build', 'docs', '--outDir', out], { cwd: root, stdio: ['ignore', 'ignore', 'inherit'] });
+try {
+  execFileSync(process.execPath, [join(root, 'node_modules/vitepress/bin/vitepress.js'), 'build', 'docs', '--outDir', out], { cwd: root, stdio: 'pipe' });
+} catch (e) {
+  // VitePress reports its errors (dead links, bad markdown) on stdout.
+  console.error(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message);
+  process.exit(1);
+}
 // TypeScript sources stay out of the site; the .js and its source map (with the sources embedded) are enough.
 const noTs = (src) => !/\.ts$/.test(src);
 mkdirSync(join(out, 'workbench'), { recursive: true });

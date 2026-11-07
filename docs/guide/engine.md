@@ -46,7 +46,7 @@ API. When smaltdb 0.9 and its packages are published (as `@smaltworks/…`), the
 ## Deploy
 
 `npm ci && npm run deps && npm run build` assembles the site in `dist/`, for the `/smaltui/` path (`DOCS_BASE`
-changes it). Any static host works. `npm run preview` builds it and serves it at http://localhost:8080/smaltui/.
+changes it). Any static host works. `npm run preview` builds it and serves it at `http://localhost:8080/smaltui/`.
 
 ```
 dist/                                     the product site: docs/, built with VitePress on the smaltworks docs theme
