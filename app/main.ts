@@ -2412,12 +2412,15 @@ function aboutDialog(): void {
   const v: Partial<NonNullable<Engine['version']>> = app.engine?.version ?? {};
   modal({
     title: 'About smaltui',
-    body: `<p>smaltui is a SQL console for <a href="https://smaltdb.dev" target="_blank" rel="noopener">smaltdb</a> that runs entirely in the browser. It is a static site: serve the folder from any static host, and every visitor gets their own databases in their own browser.</p>
+    body: `<p class="about-badges"><a href="https://smaltworks.dev/stability" target="_blank" rel="noopener" title="What work in progress means for you"><img class="logo-light" src="brand/badges/work-in-progress.svg" alt="Work in progress. Come build with us." height="56"><img class="logo-dark" src="brand/badges/work-in-progress-on-dark.svg" alt="Work in progress. Come build with us." height="56"></a></p>
+      <p>smaltui is a SQL console for <a href="https://smaltdb.dev" target="_blank" rel="noopener">smaltdb</a> that runs entirely in the browser. It is a static site: serve the folder from any static host, and every visitor gets their own databases in their own browser.</p>
+      <p>It is a work in progress: things change between releases, so keep the source data for anything you build here. Try it, break it, tell us on <a href="https://github.com/stenhoor/smaltui/issues" target="_blank" rel="noopener">GitHub</a>.</p>
       <dl class="kv" style="padding:0"><dt>Engine</dt><dd>${esc(app.engine?.label ?? '—')}</dd>
       ${v.commit ? `<dt>smaltdb commit</dt><dd>${esc(v.commit)}</dd>` : ''}${v.version ? `<dt>smaltdb version</dt><dd>${esc(v.version)}</dd>` : ''}
       <dt>Cross-origin isolated</dt><dd>${crossOriginIsolated ? 'yes (parallel readers, interruptible statements)' : 'no — serve with COOP/COEP headers for parallel readers'}</dd>
       <dt>OPFS</dt><dd>${opfsAvailable() ? 'available' : 'not available'}</dd>
-      <dt>Database</dt><dd>${esc(app.dbName ?? '—')} (${esc(app.storage ?? '')}${app.db ? (db().isLeader ? ', owner tab' : ', shared with another tab') : ''})</dd></dl>`,
+      <dt>Database</dt><dd>${esc(app.dbName ?? '—')} (${esc(app.storage ?? '')}${app.db ? (db().isLeader ? ', owner tab' : ', shared with another tab') : ''})</dd></dl>
+      <p class="about-badges"><a href="https://smaltworks.dev" target="_blank" rel="noopener"><img class="logo-light" src="brand/badges/a-smaltworks-project.svg" alt="A smaltworks project" height="28"><img class="logo-dark" src="brand/badges/a-smaltworks-project-on-dark.svg" alt="A smaltworks project" height="28"></a></p>`,
   });
 }
 
