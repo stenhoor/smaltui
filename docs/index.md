@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: 'sm<span class="alt">alt</span><span class="suffix">ui</span>'
+  name: 'sm<span class="alt">alt</span><span class="suffix tool">ui</span>'
   text: Small. Alternative. Query.
   tagline: A SQL console for smaltdb that runs entirely in the browser.
   image:

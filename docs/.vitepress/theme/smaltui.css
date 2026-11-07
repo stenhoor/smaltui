@@ -1,20 +1,6 @@
 /* smaltui on the family docs theme (brand/themes/vitepress/smaltdb.css, copied from stenhoor/smalt-brand). */
 
-/* smaltui's suffix takes the user-tool layer's text colour (smalt-brand BRAND.md, "Colour by layer"). */
-.VPHero .name .suffix { color: #0B6A91; -webkit-text-fill-color: #0B6A91; }
-.dark .VPHero .name .suffix { color: #5CBDE8; -webkit-text-fill-color: #5CBDE8; }
-
-/* Light / dark image pairs (badges). */
-img.sw-light { display: inline-block; vertical-align: middle; }
-img.sw-dark { display: none; vertical-align: middle; }
-.dark img.sw-light { display: none; }
-.dark img.sw-dark { display: inline-block; }
-.VPFooter .message a { display: inline-block; line-height: 0; margin: 2px 3px; }
-
-/* The stage badge under the hero. */
-.su-stage { margin: 4px 0 20px; }
-.su-stage a { line-height: 0; }
-.su-stage img { margin: 0; }
+/* The suffix colour, the badges and the stage badge come from the shared theme (smaltdb.css, stage.ts). */
 
 /* The live console. */
 .su-demo { margin: 8px 0 12px; border: 1px solid var(--vp-c-divider); border-radius: 12px; overflow: hidden; background: var(--vp-c-bg-alt); }
