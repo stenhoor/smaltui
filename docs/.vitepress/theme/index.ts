@@ -1,22 +1,12 @@
 import DefaultTheme from 'vitepress/theme';
-import { withBase, type Theme } from 'vitepress';
-import { h } from 'vue';
+import type { Theme } from 'vitepress';
 import '../../../brand/themes/vitepress/smaltdb.css';
 import './smaltui.css';
-
-// The work-in-progress badge under the hero's title, as on every smaltworks product page (smalt-brand BRAND.md,
-// "Before 1.0"): linked to the stability page.
-const stage = () =>
-  h('div', { class: 'su-stage' }, [
-    h('a', { href: 'https://smaltworks.dev/stability' }, [
-      h('img', { class: 'sw-light', src: withBase('/badges/work-in-progress.svg'), alt: 'Work in progress. Come build with us.', height: 56 }),
-      h('img', { class: 'sw-dark', src: withBase('/badges/work-in-progress-on-dark.svg'), alt: 'Work in progress. Come build with us.', height: 56 }),
-    ]),
-  ]);
+import { withSmaltworks } from '../../../brand/themes/vitepress/stage';
 
 export default {
   extends: DefaultTheme,
-  Layout: () => h(DefaultTheme.Layout, null, { 'home-hero-info-after': stage }),
+  Layout: withSmaltworks(DefaultTheme, 'wip', '/badges/'),
   enhanceApp() {
     if (typeof window === 'undefined') return;
     // The embedded console (console.html, and the workbench) follow the site's light / dark switch through
