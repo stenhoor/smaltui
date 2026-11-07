@@ -8,10 +8,26 @@
   --smalt-200: #9DB4F5;
   --smalt-100: #D6E0F3;
   --kiln-500: #E5622F;
-  --product-ui: #0E7FAE;
-  --product-ui-text: #0B6A91;
-  --product-bi: #6E4BC2;
-  --product-bi-text: #6141AE;
+  --layer-language: #B0249F;
+  --layer-language-text: #981C89;
+  --layer-kit: #0A7C76;
+  --layer-kit-text: #086A65;
+  --layer-tool: #0E7FAE;
+  --layer-tool-text: #0B6A91;
+  --layer-ai: #6E4BC2;
+  --layer-ai-text: #6141AE;
+  --product-ui: var(--layer-tool);
+  --product-ui-text: var(--layer-tool-text);
+  --product-bi: var(--layer-tool);
+  --product-bi-text: var(--layer-tool-text);
+  --product-nb: var(--layer-tool);
+  --product-nb-text: var(--layer-tool-text);
+  --product-df: var(--layer-language);
+  --product-df-text: var(--layer-language-text);
+  --product-ql: var(--layer-language);
+  --product-ql-text: var(--layer-language-text);
+  --product-ts: var(--layer-language);
+  --product-ts-text: var(--layer-language-text);
   --bg: #F5F6F8;
   --surface: #FFFFFF;
   --code-bg: #EEF1F6;
@@ -36,10 +52,26 @@
 }
 
 [data-theme="dark"] {
-  --product-ui: #5CBDE8;
-  --product-ui-text: #5CBDE8;
-  --product-bi: #B8A1F2;
-  --product-bi-text: #B8A1F2;
+  --layer-language: #F57FE6;
+  --layer-language-text: #F57FE6;
+  --layer-kit: #10C2B9;
+  --layer-kit-text: #10C2B9;
+  --layer-tool: #5CBDE8;
+  --layer-tool-text: #5CBDE8;
+  --layer-ai: #B8A1F2;
+  --layer-ai-text: #B8A1F2;
+  --product-ui: var(--layer-tool);
+  --product-ui-text: var(--layer-tool-text);
+  --product-bi: var(--layer-tool);
+  --product-bi-text: var(--layer-tool-text);
+  --product-nb: var(--layer-tool);
+  --product-nb-text: var(--layer-tool-text);
+  --product-df: var(--layer-language);
+  --product-df-text: var(--layer-language-text);
+  --product-ql: var(--layer-language);
+  --product-ql-text: var(--layer-language-text);
+  --product-ts: var(--layer-language);
+  --product-ts-text: var(--layer-language-text);
   --bg: #14171F;
   --surface: #1B1F29;
   --code-bg: #11141B;
@@ -65,10 +97,26 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --product-ui: #5CBDE8;
-    --product-ui-text: #5CBDE8;
-    --product-bi: #B8A1F2;
-    --product-bi-text: #B8A1F2;
+    --layer-language: #F57FE6;
+    --layer-language-text: #F57FE6;
+    --layer-kit: #10C2B9;
+    --layer-kit-text: #10C2B9;
+    --layer-tool: #5CBDE8;
+    --layer-tool-text: #5CBDE8;
+    --layer-ai: #B8A1F2;
+    --layer-ai-text: #B8A1F2;
+    --product-ui: var(--layer-tool);
+    --product-ui-text: var(--layer-tool-text);
+    --product-bi: var(--layer-tool);
+    --product-bi-text: var(--layer-tool-text);
+    --product-nb: var(--layer-tool);
+    --product-nb-text: var(--layer-tool-text);
+    --product-df: var(--layer-language);
+    --product-df-text: var(--layer-language-text);
+    --product-ql: var(--layer-language);
+    --product-ql-text: var(--layer-language-text);
+    --product-ts: var(--layer-language);
+    --product-ts-text: var(--layer-language-text);
     --bg: #14171F;
     --surface: #1B1F29;
     --code-bg: #11141B;

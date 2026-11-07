@@ -357,3 +357,5 @@ dialog::backdrop { background: rgba(10, 14, 22, 0.45); }
   .topbar-actions button.ghost { padding: 4px 6px; }
   #stMode { display: none; }
 }
+.about-badges { margin: 0 0 12px; line-height: 0; }
+.about-badges a { display: inline-flex; border-radius: 10px; }

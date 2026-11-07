@@ -5,6 +5,11 @@
   </picture>
 </h1>
 
+<a href="https://smaltworks.dev/stability"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/badges/work-in-progress-on-dark.svg">
+  <img alt="Work in progress. Come build with us." src="brand/badges/work-in-progress.svg" height="56">
+</picture></a>
+
 **Small. Alternative. Query.**
 
 A SQL console for [smaltdb](https://smaltdb.dev) that runs entirely in the browser. smaltui is in the spirit of Toad:
@@ -228,3 +233,10 @@ From the browser console, `smaltui.db` is the open smaltdb `Database`.
 ## License
 
 MIT
+
+---
+
+<a href="https://smaltworks.dev"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/badges/a-smaltworks-project-on-dark.svg">
+  <img alt="A smaltworks project" src="brand/badges/a-smaltworks-project.svg" height="28">
+</picture></a>
