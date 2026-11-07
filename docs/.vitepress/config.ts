@@ -55,6 +55,7 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Getting started', link: '/guide/' },
+          { text: 'TypeScript tabs (smaltdf)', link: '/guide/typescript' },
           { text: 'Environments', link: '/guide/environments' },
           { text: 'Import and link data', link: '/guide/import' },
           { text: 'Engine and deploy', link: '/guide/engine' },
@@ -68,6 +69,7 @@ export default defineConfig({
       message: [
         badge('powered-by-smaltdb', 'Powered by smaltdb', 'https://smaltdb.dev'),
         badge('powered-by-smaltql', 'Powered by smaltql', 'https://stenhoor.github.io/smaltql/'),
+        badge('powered-by-smaltdf', 'Powered by smaltdf', 'https://stenhoor.github.io/smaltdf/'),
         badge('a-smaltworks-project', 'A smaltworks project', `${WORKS}/`),
       ].join(' '),
       copyright: 'MIT License · Stay smalty.',

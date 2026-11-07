@@ -4,6 +4,8 @@ import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, qu
 import { Editor, type EditorSchema, type SchemaTable } from './editor.js';
 import { Grid, formatValue, plainValue, exportRows, type Column, type ExportFormat, type Row, type SortDir, type Value } from './grid.js';
 import { normalizeDataUrl, corsHint } from '../vendor/smaltkit/urls.js';
+import { splitLastExpression } from './ts.js';
+import type * as Df from '@smaltdb/df';
 import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
 import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet, type DataFormat, type Manifest, type ReaderOptions } from './env.js';
 
@@ -192,7 +194,7 @@ interface OpenCursor {
   close(): Promise<void>;
 }
 
-type TabKind = 'query' | 'table' | 'import' | 'history' | 'welcome';
+type TabKind = 'query' | 'ts' | 'table' | 'import' | 'history' | 'welcome';
 
 interface TabBase {
   id: number;
@@ -330,7 +332,23 @@ interface WelcomeTab extends TabBase {
   kind: 'welcome';
 }
 
-type Tab = QueryTab | TableTab | ImportTab | HistoryTab | WelcomeTab;
+/** A TypeScript tab: smaltdf code that runs against the open database (see tsTab). */
+interface TsTab extends TabBase {
+  kind: 'ts';
+  source: string;
+  editor: Editor;
+  results: { title: string; columns: string[]; rows: Row[]; ms: number }[];
+  texts: { title: string; text: string }[];
+  plan: string | null;
+  messages: Message[];
+  grids: Grid[];
+  run(): Promise<void>;
+  renderResults(view?: string): void;
+  save(): void;
+  openFile(): void;
+}
+
+type Tab = QueryTab | TsTab | TableTab | ImportTab | HistoryTab | WelcomeTab;
 
 /** Placeholder for a tab field that its init() assigns before anything reads it. */
 const assignedInInit = <T,>(): T => undefined as T;
@@ -859,7 +877,7 @@ function renderTabs(): void {
     };
     el.onauxclick = (e) => e.button === 1 && closeTab(t);
     el.ondblclick = (e) => {
-      if (t.kind === 'query' && !closest(e, '.tab-close')) renameTab(t);
+      if ((t.kind === 'query' || t.kind === 'ts') && !closest(e, '.tab-close')) renameTab(t);
     };
     el.ondragstart = (e) => e.dataTransfer?.setData('text/x-tab', String(t.id));
     el.ondragover = (e) => e.preventDefault();
@@ -921,6 +939,7 @@ async function renameTab(t: Tab): Promise<void> {
 function saveQueryTabs(): void {
   const tabs = app.tabs.filter((t): t is QueryTab => t.kind === 'query').map((t) => ({ title: t.title, sql: t.editor?.value ?? t.sql ?? '' }));
   prefs.set('queryTabs', tabs);
+  prefs.set('tsTabs', app.tabs.filter((t): t is TsTab => t.kind === 'ts').map((t) => ({ title: t.title, source: t.editor?.value ?? t.source ?? '' })));
 }
 
 function insertIntoEditor(text: string): void {
@@ -928,6 +947,274 @@ function insertIntoEditor(text: string): void {
   if (!t) t = newQueryTab();
   activateTab(t);
   t.editor.insert(text);
+}
+
+// ================================================================ TypeScript tab (smaltdf)
+//
+// An editor tab for TypeScript with smaltdf, beside the SQL tab: frames and expressions build plans, which run in the
+// engine worker against the open database. Ctrl+Enter runs the whole tab. Its last expression, and every value passed
+// to show(), is a result: frames are collected and shown as grids, writes report their row count, other values show as
+// text. The types are stripped by sucrase; smaltdf and sucrase load from vendor/smaltdf/ on first use.
+
+type DfModule = typeof Df;
+let dfLoad: Promise<{ df: DfModule; transform: (code: string, o: object) => { code: string } }> | null = null;
+const loadDf = () =>
+  (dfLoad ??= Promise.all([import(/* @vite-ignore */ new URL('../vendor/smaltdf/smaltdf.js', import.meta.url).href), import(/* @vite-ignore */ new URL('../vendor/smaltdf/sucrase.js', import.meta.url).href)]).then(([df, su]) => ({ df: df as DfModule, transform: su.transform })));
+let dfNames: { globals: string[]; members: string[] } = { globals: [], members: [] };
+const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...args: string[]) => (...a: unknown[]) => Promise<unknown>;
+
+/** The names TypeScript tabs complete: smaltdf's functions, and the methods of frames, expressions and group-bys. */
+function tsNames(): { globals: string[]; members: string[] } {
+  if (!dfNames.globals.length) {
+    loadDf()
+      .then(({ df }) => {
+        const methods = (c: unknown) => (c && typeof c === 'function' ? Object.getOwnPropertyNames(c.prototype).filter((n) => n !== 'constructor' && !n.startsWith('_')) : []);
+        dfNames = {
+          globals: Object.keys(df).filter((k) => /^[a-z]/.test(k) && typeof (df as Record<string, unknown>)[k] === 'function'),
+          members: [...new Set([...methods(df.Frame), ...methods(df.Expr), ...methods(df.GroupBy), ...methods(df.Write), 'str', 'dt'])].sort(),
+        };
+      })
+      .catch(() => {});
+  }
+  return dfNames;
+}
+
+let tsSeq = 0;
+const TS_STARTER = `// TypeScript with smaltdf: frames and expressions that run in the smaltdb engine.
+// Ctrl+Enter runs the tab; its last expression is shown. show(value) shows more.
+table('${'${table}'}').head(10)
+`;
+
+function newTsTab({ title, source }: { title?: string; source?: string } = {}): TsTab {
+  const first = [...app.schema.tables.keys()][0] ?? 'my_table';
+  const tab = tsTab(title ?? `TypeScript ${++tsSeq}`, source ?? TS_STARTER.replace('${table}', first));
+  addTab(tab);
+  saveQueryTabs();
+  tab.editor.focus();
+  return tab;
+}
+
+function tsTab(title: string, source: string): TsTab {
+  const tab: TsTab = {
+    id: 0,
+    el: blankPane(),
+    kind: 'ts',
+    title,
+    icon: 'ƒ',
+    tooltip: `${title}: TypeScript with smaltdf (double-click to rename)`,
+    source,
+    editor: assignedInInit<Editor>(),
+    results: [],
+    texts: [],
+    plan: null,
+    messages: [],
+    grids: [],
+    busy: false,
+    init() {
+      const el = this.el;
+      el.innerHTML = `
+        <div class="toolbar">
+          <button class="primary run-btn" data-run title="Run the tab (Ctrl+Enter)">▶ Run</button>
+          <span class="sep"></span>
+          <button class="ghost" data-open title="Open a .ts file">Open…</button>
+          <button class="ghost" data-save title="Save as .ts (Ctrl+S)">Save</button>
+          <span class="grow"></span>
+          <span class="hint">TypeScript · <a href="https://stenhoor.github.io/smaltdf/" target="_blank" rel="noopener">smaltdf</a>: <code>table</code>, <code>col</code>, <code>lit</code>, <code>len</code>, … · <code>db</code> · <code>show()</code></span>
+        </div>
+        <div class="qsplit">
+          <div class="ed-host"></div>
+          <div class="hsplitter" title="Drag to resize"></div>
+          <div class="results">
+            <div class="subtabs"></div>
+            <div class="subpanes"></div>
+          </div>
+        </div>`;
+      this.editor = new Editor($('.ed-host', el), {
+        value: this.source,
+        language: 'ts',
+        tsNames,
+        schema: () => app.schema,
+        onChange: debounce(() => saveQueryTabs(), 400),
+        keys: { 'Mod+Enter': () => void this.run(), 'Shift+Mod+Enter': () => void this.run(), F5: () => void this.run(), 'Mod+S': () => this.save() },
+      });
+      const split = $('.qsplit', el);
+      split.style.setProperty('--ed-h', prefs.get('editorHeight', '42%'));
+      dragSplit(
+        $('.hsplitter', el),
+        (ev) => {
+          const r = split.getBoundingClientRect();
+          split.style.setProperty('--ed-h', Math.max(12, Math.min(85, ((ev.clientY - r.top) / r.height) * 100)) + '%');
+        },
+        () => prefs.set('editorHeight', split.style.getPropertyValue('--ed-h')),
+      );
+      $('[data-run]', el).onclick = () => void this.run();
+      $('[data-save]', el).onclick = () => this.save();
+      $('[data-open]', el).onclick = () => this.openFile();
+      tsNames();
+      this.renderResults();
+    },
+    onShow() {
+      requestAnimationFrame(() => {
+        this.editor.render();
+        this.editor.focus();
+        this.grids.forEach((g) => g.renderRows(true));
+      });
+    },
+    onSchema() {
+      this.editor.render();
+    },
+    async run() {
+      if (this.busy || !app.db) return;
+      this.busy = true;
+      renderTabs();
+      $('[data-run]', this.el).disabled = true;
+      const t0 = now();
+      const code = this.editor.value;
+      saveQueryTabs();
+      this.results = [];
+      this.texts = [];
+      this.plan = null;
+      const at = new Date().toLocaleTimeString();
+      try {
+        const { df, transform } = await loadDf();
+        // smaltdf's names are in scope already, so `import { … } from '@smaltdb/df'` is optional: a plain import is
+        // dropped, and `x as y` becomes `const y = __df.x`. Nothing else can be imported here.
+        const src = code.replace(/^[ \t]*import\s+(type\s+)?\{([^}]*)\}\s*from\s*['"]@smaltdb\/df['"];?/gm, (_m, type: string | undefined, names: string) =>
+          type
+            ? ''
+            : names
+                .split(',')
+                .map((n) => /^\s*(\w+)\s+as\s+(\w+)\s*$/.exec(n))
+                .filter((m): m is RegExpExecArray => !!m)
+                .map((m) => `const ${m[2]} = __df.${m[1]};`)
+                .join(' '),
+        );
+        if (/^[ \t]*import\s/m.test(src)) throw new Error("Only smaltdf can be imported in a TypeScript tab: import { … } from '@smaltdb/df'");
+        const js = transform(src, { transforms: ['typescript'], disableESTransforms: true }).code;
+        const { body, expr } = splitLastExpression(js);
+        const shown: { value: unknown; title?: string }[] = [];
+        const show = (value: unknown, title?: string) => void shown.push({ value, title });
+        const names = Object.keys(df).filter((n) => /^[A-Za-z_$][\w$]*$/.test(n) && !['db', 'show'].includes(n));
+        const fn = new AsyncFunction('__df', 'db', 'show', ...names, `${body}\n${expr ? `return (${expr});` : ''}`);
+        const value = await fn(df, db(), show, ...names.map((n) => (df as Record<string, unknown>)[n]));
+        if (expr) shown.push({ value, title: 'Result' });
+        for (const [i, { value: v, title: t }] of shown.entries()) await this.addResult(df, v, t ?? `Shown ${i + 1}`);
+        const ms = now() - t0;
+        const what = this.results.length ? `${this.results.length} result${this.results.length === 1 ? '' : 's'}` : this.texts.length ? 'done' : 'done, no value';
+        this.messages.unshift({ kind: 'ok', text: `${what} in ${fmtMs(ms)}`, sql: code, at });
+        status(`TypeScript: ${what} in ${fmtMs(ms)}`);
+        addHistory({ sql: `// TypeScript\n${code}`, db: app.dbName, at: Date.now(), ms });
+        await refreshSchema();
+      } catch (e) {
+        this.messages.unshift({ kind: 'err', text: errText(e), sql: code, at });
+        status(errText(e), 'err');
+      } finally {
+        this.busy = false;
+        $('[data-run]', this.el).disabled = false;
+        renderTabs();
+        this.renderResults(this.results.length ? 'r0' : this.texts.length ? 't0' : 'messages');
+      }
+    },
+    async addResult(df: DfModule, v: unknown, title: string) {
+      const t0 = now();
+      if (v instanceof df.Frame) {
+        this.plan = JSON.stringify(await v.plan(db()), (_k, x) => (typeof x === 'bigint' ? x.toString() : x), 2);
+        v = await v.collect(db());
+      }
+      if (v instanceof df.Write) v = await v.run(db());
+      if (v && typeof v === 'object' && Array.isArray((v as Df.DfResult).columns) && Array.isArray((v as Df.DfResult).rows)) {
+        const r = v as Df.DfResult;
+        this.results.push({ title, columns: r.columns, rows: r.rows.map((row) => row.map(toCell)), ms: now() - t0 });
+      } else if (Array.isArray(v) && v.length && v.every((x) => x && typeof x === 'object' && !Array.isArray(x))) {
+        const columns = [...new Set(v.flatMap((x) => Object.keys(x as object)))];
+        this.results.push({ title, columns, rows: v.map((x) => columns.map((c) => toCell((x as Record<string, unknown>)[c]))), ms: now() - t0 });
+      } else if (v !== undefined) {
+        const text = v && typeof v === 'object' && 'rows' in v && Object.keys(v).length === 1 ? `${fmtNum((v as { rows: number }).rows)} row(s) written` : typeof v === 'string' ? v : stringify(v);
+        this.texts.push({ title, text });
+      }
+    },
+    renderResults(view = 'messages') {
+      const tabsEl = $('.subtabs', this.el);
+      const panes = $('.subpanes', this.el);
+      tabsEl.innerHTML = '';
+      panes.innerHTML = '';
+      this.grids = [];
+      const views: { key: string; label: string; badge?: string; err?: boolean; build: (pane: HTMLElement) => void }[] = [];
+      this.results.forEach((res, i) => {
+        views.push({
+          key: 'r' + i,
+          label: res.title,
+          badge: fmtNum(res.rows.length),
+          build: (pane) => {
+            const gh = pane.appendChild(h('<div class="grid"></div>'));
+            const grid = new Grid(gh, { onOpenValue: (r, c) => showValue(res.rows[r][c], res.columns[c]) });
+            grid.setData(res.columns, res.rows);
+            this.grids.push(grid);
+            pane.appendChild(h(`<div class="result-bar"><span>${fmtNum(res.rows.length)} row${res.rows.length === 1 ? '' : 's'} · ${res.columns.length} column${res.columns.length === 1 ? '' : 's'} · ${fmtMs(res.ms)}</span></div>`));
+          },
+        });
+      });
+      this.texts.forEach((t, i) => views.push({ key: 't' + i, label: t.title, build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = t.text) }));
+      if (this.plan) views.push({ key: 'plan', label: 'Plan', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.plan) });
+      views.push({
+        key: 'messages',
+        label: 'Messages',
+        badge: this.messages.length ? String(this.messages.length) : '',
+        err: this.messages[0]?.kind === 'err',
+        build: (pane) => {
+          const box = pane.appendChild(h('<div class="messages"></div>'));
+          box.innerHTML = this.messages.length
+            ? this.messages.map((m) => `<div class="msg ${m.kind}"><span class="t">${m.at}</span><div><span class="b">${esc(m.text)}</span></div></div>`).join('')
+            : `<div class="placeholder"><h3>Ready</h3>Write TypeScript with smaltdf above and press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run it.<br>The last expression is shown; <code>show(value)</code> shows more. <kbd>Ctrl</kbd>+<kbd>Space</kbd> completes names.</div>`;
+        },
+      });
+      for (const v of views) {
+        const b = h(`<button class="subtab${v.err ? ' err' : ''}" data-view="${v.key}">${esc(v.label)}${v.badge ? `<span class="badge">${esc(v.badge)}</span>` : ''}</button>`);
+        const pane = h(`<div class="subpane" data-pane="${v.key}"></div>`);
+        v.build(pane);
+        tabsEl.appendChild(b);
+        panes.appendChild(pane);
+        b.onclick = () => show(v.key);
+      }
+      const show = (key: string) => {
+        $$('.subtab', tabsEl).forEach((x) => x.classList.toggle('active', x.dataset.view! === key));
+        $$('.subpane', panes).forEach((x) => x.classList.toggle('active', x.dataset.pane! === key));
+        this.grids.forEach((g) => g.renderRows(true));
+      };
+      show(views.some((v) => v.key === view) ? view : views[0].key);
+    },
+    save() {
+      download((this.title.replace(/[^\w.-]+/g, '_') || 'frames') + '.ts', this.editor.value, 'text/typescript');
+    },
+    openFile() {
+      const input = h<HTMLInputElement>('<input type="file" accept=".ts,.js,text/plain">');
+      input.onchange = async () => {
+        const f = input.files?.[0];
+        if (!f) return;
+        this.editor.replaceAll(await f.text());
+        this.title = f.name.replace(/\.(ts|js)$/, '');
+        renderTabs();
+        saveQueryTabs();
+      };
+      input.click();
+    },
+  } as TsTab & { addResult(df: DfModule, v: unknown, title: string): Promise<void> };
+  return tab;
+}
+
+function toCell(v: unknown): Value {
+  if (v === null || v === undefined || typeof v === 'number' || typeof v === 'string' || typeof v === 'bigint' || v instanceof Uint8Array) return (v ?? null) as Value;
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (v instanceof Date) return v.toISOString();
+  return stringify(v);
+}
+
+function stringify(v: unknown): string {
+  try {
+    return JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x), 2) ?? String(v);
+  } catch {
+    return String(v);
+  }
 }
 
 // ================================================================ query tab
@@ -2235,7 +2522,9 @@ async function loadEnvironment(url: string | null, { manifest = null, force = fa
   await refreshSchema();
   app.env = m;
   for (const q of m.queries ?? []) {
-    if (!app.tabs.some((t) => t.kind === 'query' && t.editor?.value.trim() === q.sql.trim())) newQueryTab({ title: q.title, sql: q.sql });
+    if (q.lang === 'ts') {
+      if (!app.tabs.some((t) => t.kind === 'ts' && t.editor?.value.trim() === q.sql.trim())) newTsTab({ title: q.title, source: q.sql });
+    } else if (!app.tabs.some((t) => t.kind === 'query' && t.editor?.value.trim() === q.sql.trim())) newQueryTab({ title: q.title, sql: q.sql });
   }
   for (const t of m.open ?? []) if (app.schema.tables.has(t)) openTableTab(t);
   // Drop the starter tab if it is still empty.
@@ -2257,7 +2546,11 @@ async function exportEnvironmentDialog(): Promise<void> {
   if (!r) return;
   try {
     if (r === 'sql') return download(`${app.dbName}.sql`, await exportSqlDump(app.db), 'application/sql');
-    const queries = r.queries ? app.tabs.filter((t): t is QueryTab => t.kind === 'query' && !!t.editor.value.trim()).map((t) => ({ title: t.title, sql: t.editor.value })) : [];
+    const queries = r.queries
+      ? app.tabs
+          .filter((t): t is QueryTab | TsTab => (t.kind === 'query' || t.kind === 'ts') && !!t.editor.value.trim())
+          .map((t) => (t.kind === 'ts' ? { title: t.title, sql: t.editor.value, lang: 'ts' as const } : { title: t.title, sql: t.editor.value }))
+      : [];
     const m = await exportManifest(db(), { name: r.name, dbName: app.dbName ?? 'smaltui', includeData: r.data, queries });
     download(`${app.dbName}.env.json`, JSON.stringify(m, null, 2), 'application/json');
   } catch (e) {
@@ -2342,6 +2635,7 @@ function welcomeTab(): WelcomeTab {
         <p class="lead">A SQL console for <a href="https://smaltdb.dev" target="_blank" rel="noopener">smaltdb</a> that runs entirely in the browser. Databases live in this browser's private storage (OPFS) or in memory, and the page fetches only the files and URLs you import or link.</p>
         <div class="quick">
           <button data-q="query"><b>⌨ New query</b><span>Write SQL with highlighting, completion and bind variables.</span></button>
+          <button data-q="ts"><b>ƒ New TypeScript tab</b><span>Query with smaltdf: frames and expressions in TypeScript, run in the engine.</span></button>
           <button data-q="import"><b>⇣ Import a file</b><span>Load CSV, TSV, JSON, NDJSON or Parquet into a table.</span></button>
           <button data-q="link"><b>⇄ Link a source</b><span>Query a file or URL in place as an external table.</span></button>
           <button data-q="demo"><b>★ Open the demo</b><span>A sample environment with tables, a view and saved queries.</span></button>
@@ -2354,6 +2648,7 @@ function welcomeTab(): WelcomeTab {
         if (!b) return;
         const q = b.dataset.q!;
         if (q === 'query') newQueryTab();
+        else if (q === 'ts') newTsTab();
         else if (q === 'import') openImportTab('import');
         else if (q === 'link') openImportTab('link');
         else if (q === 'db') dbPicker();
@@ -2434,6 +2729,7 @@ function toggleTheme() {
 function wireChrome() {
   $('#dbPicker').onclick = () => dbPicker();
   $('#btnNewQuery').onclick = () => newQueryTab();
+  $('#btnNewTs').onclick = () => newTsTab();
   $('#btnImport').onclick = () => openImportTab();
   $('#btnHistory').onclick = () => openHistoryTab();
   $('#btnMore').onclick = () => ($('#moreMenu').hidden = !$('#moreMenu').hidden);
@@ -2503,10 +2799,19 @@ async function init() {
     const n = /^Query (\d+)$/.exec(q.title);
     if (n) querySeq = Math.max(querySeq, Number(n[1]));
   }
+  const savedTs = prefs.get<{ title: string; source: string }[]>('tsTabs', []);
+  for (const t of savedTs) {
+    const n = /^TypeScript (\d+)$/.exec(t.title);
+    if (n) tsSeq = Math.max(tsSeq, Number(n[1]));
+  }
+  const restoreTsTabs = () => {
+    for (const t of savedTs) addTab(tsTab(t.title, t.source));
+  };
   const envUrl = params.get('env');
   try {
     if (envUrl) {
       for (const q of saved) addTab(queryTab(q.title, q.sql));
+      restoreTsTabs();
       await loadEnvironment(envUrl);
     } else {
       const last = prefs.get<{ name: string; storage: Storage } | null>('lastDb', null);
@@ -2515,6 +2820,7 @@ async function init() {
       await openDatabase(name, storage);
       if (!saved.length) addTab(welcomeTab());
       for (const q of saved) addTab(queryTab(q.title, q.sql));
+      restoreTsTabs();
       if (!saved.length) newQueryTab({ sql: '-- Ctrl+Enter runs the statement under the cursor\nSELECT \'hello, smaltdb\' AS greeting, datetime(\'now\') AS now;\n' });
       activateTab(app.tabs.find((t) => t.kind === 'welcome') ?? app.tabs[0]);
     }

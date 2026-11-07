@@ -22,7 +22,10 @@ https://your.host/smaltui/workbench/?env=envs/demo/env.json
     { "connection": "api", "url": "https://data.example.com/v1/" },
     { "link": "data/exchange_rates.csv", "table": "exchange_rates", "format": "csv", "options": { "header": true } }
   ],
-  "queries": [{ "title": "Revenue", "sql": "SELECT …" }],
+  "queries": [
+    { "title": "Revenue", "sql": "SELECT …" },
+    { "title": "Frames", "lang": "ts", "sql": "table('orders').head(10)" }
+  ],
   "open": ["orders"]
 }
 ```

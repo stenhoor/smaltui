@@ -1,6 +1,8 @@
-// A small SQL editor: a transparent <textarea> over a highlighted <pre>, with line numbers,
-// auto-indent, comment toggling, bracket/quote pairing and a completion popup.
+// A small code editor: a transparent <textarea> over a highlighted <pre>, with line numbers,
+// auto-indent, comment toggling, bracket/quote pairing and a completion popup. SQL by default; `language: 'ts'`
+// edits TypeScript (smaltdf tabs), with completion of smaltdf names and of tables and columns in table('…') / col('…').
 import { highlight, wordBefore, aliasesIn, statementAt, KEYWORDS, FUNCTIONS, unquote, type Statement } from './sql.js';
+import { highlightTs, tsWordBefore, TS_KEYWORDS } from './ts.js';
 
 /** A column as the object explorer and completion know it. */
 export interface SchemaColumn {
@@ -26,6 +28,10 @@ export interface EditorOptions {
   schema?: () => EditorSchema;
   /** Shortcuts such as "Mod+Enter", "Shift+Mod+Enter", "F5", "Mod+E". */
   keys?: Record<string, (e: KeyboardEvent) => void>;
+  /** 'sql' (default) or 'ts'. */
+  language?: 'sql' | 'ts';
+  /** TypeScript mode: the names to complete, top-level functions and the members of frames and expressions. */
+  tsNames?: () => { globals: string[]; members: string[] };
 }
 
 interface CompletionItem {
@@ -56,7 +62,7 @@ export class Editor {
   constructor(host: HTMLElement, opts: EditorOptions = {}) {
     this.opts = opts;
     host.classList.add('editor');
-    host.innerHTML = `<div class="ed-gutter"><div class="ed-lines"></div></div><div class="ed-body"><pre class="ed-hl" aria-hidden="true"></pre><div class="ed-stmt"></div><textarea class="ed-input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="SQL editor"></textarea></div><div class="ed-complete" role="listbox" hidden></div>`;
+    host.innerHTML = `<div class="ed-gutter"><div class="ed-lines"></div></div><div class="ed-body"><pre class="ed-hl" aria-hidden="true"></pre><div class="ed-stmt"></div><textarea class="ed-input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="${opts.language === 'ts' ? 'TypeScript' : 'SQL'} editor"></textarea></div><div class="ed-complete" role="listbox" hidden></div>`;
     this.host = host;
     this.ta = host.querySelector('textarea')!;
     this.hl = host.querySelector<HTMLPreElement>('.ed-hl')!;
@@ -143,11 +149,13 @@ export class Editor {
   render(): void {
     const text = this.ta.value;
     const schema = this.opts.schema?.();
-    let html = highlight(text, schema?.names);
+    const fns = this.opts.language === 'ts' ? new Set(this.opts.tsNames?.().globals ?? []) : undefined;
+    const hl = (t: string) => (this.opts.language === 'ts' ? highlightTs(t, schema?.names, fns) : highlight(t, schema?.names));
+    let html = hl(text);
     if (this.errorRange) {
       // Re-render with an error mark: simplest is to highlight the three slices separately.
       const { start, end, cls } = this.errorRange;
-      html = highlight(text.slice(0, start), schema?.names).slice(0, -1) + `<mark class="${cls}">` + highlight(text.slice(start, end), schema?.names).slice(0, -1) + '</mark>' + highlight(text.slice(end), schema?.names);
+      html = hl(text.slice(0, start)).slice(0, -1) + `<mark class="${cls}">` + hl(text.slice(start, end)).slice(0, -1) + '</mark>' + hl(text.slice(end));
     }
     this.hl.innerHTML = html;
     const n = text.split('\n').length;
@@ -169,7 +177,8 @@ export class Editor {
   /** Shade the lines of the statement under the cursor (what Ctrl+Enter runs). */
   markStatement(): void {
     const text = this.ta.value;
-    if (this.ta.selectionStart !== this.ta.selectionEnd || !text.trim()) {
+    // TypeScript tabs run as a whole: there is no statement under the cursor to shade.
+    if (this.opts.language === 'ts' || this.ta.selectionStart !== this.ta.selectionEnd || !text.trim()) {
       this.stmtMark.style.display = 'none';
       return;
     }
@@ -247,7 +256,7 @@ export class Editor {
       document.execCommand?.('insertText', false, '\n' + indent + extra) || this.insert('\n' + indent + extra);
       return;
     }
-    const pairs: Record<string, string> = { '(': ')', "'": "'", '"': '"' };
+    const pairs: Record<string, string> = this.opts.language === 'ts' ? { '(': ')', '[': ']', '{': '}', "'": "'", '"': '"', '`': '`' } : { '(': ')', "'": "'", '"': '"' };
     if (pairs[e.key] && !mod) {
       const { selectionStart: s, selectionEnd: en } = ta;
       if (s !== en) {
@@ -263,6 +272,12 @@ export class Editor {
     // Auto-complete after a dot or while typing a word.
     if (!mod && e.key.length === 1) {
       queueMicrotask(() => {
+        if (this.opts.language === 'ts') {
+          const { word, kind } = tsWordBefore(ta.value, ta.selectionStart);
+          if (kind !== 'global' || word.length >= 2) this.showComplete(false);
+          else this.hideComplete();
+          return;
+        }
         const { word, qualifier } = wordBefore(ta.value, ta.selectionStart);
         if (qualifier !== null || word.length >= 2) this.showComplete(false);
         else this.hideComplete();
@@ -298,8 +313,9 @@ export class Editor {
     if (le < 0) le = v.length;
     const block = v.slice(ls, le);
     const lines = block.split('\n');
-    const all = lines.filter((l) => l.trim()).every((l) => /^\s*--/.test(l));
-    const out = lines.map((l) => (all ? l.replace(/^(\s*)-- ?/, '$1') : l.trim() ? '-- ' + l : l)).join('\n');
+    const mark = this.opts.language === 'ts' ? '//' : '--';
+    const all = lines.filter((l) => l.trim()).every((l) => l.trimStart().startsWith(mark));
+    const out = lines.map((l) => (all ? l.replace(new RegExp(`^(\\s*)${mark} ?`), '$1') : l.trim() ? `${mark} ` + l : l)).join('\n');
     ta.setSelectionRange(ls, le);
     document.execCommand?.('insertText', false, out) || ta.setRangeText(out, ls, le, 'select');
     ta.setSelectionRange(ls, ls + out.length);
@@ -309,6 +325,7 @@ export class Editor {
   // ---------------------------------------------------------------- completion
 
   candidates(explicit: boolean): { items: CompletionItem[]; start: number } {
+    if (this.opts.language === 'ts') return this.tsCandidates(explicit);
     const v = this.ta.value;
     const pos = this.ta.selectionStart;
     const { word, start, qualifier } = wordBefore(v, pos);
@@ -341,6 +358,31 @@ export class Editor {
     for (const [t, cols] of schema.tables) add(t, cols.kind ?? 'table', cols.kind === 'view' ? 'view' : '');
     for (const f of FUNCTIONS) add(f, 'fn');
     for (const k of KEYWORDS) add(k, 'kw');
+    return { items: items.slice(0, 60), start };
+  }
+
+  /** TypeScript: members after a dot, tables in table('…'), columns in col('…'), else smaltdf functions and keywords. */
+  tsCandidates(explicit: boolean): { items: CompletionItem[]; start: number } {
+    const { word, start, kind } = tsWordBefore(this.ta.value, this.ta.selectionStart);
+    const schema: EditorSchema = this.opts.schema?.() ?? { names: new Set(), tables: new Map() };
+    const names = this.opts.tsNames?.() ?? { globals: [], members: [] };
+    const w = word.toLowerCase();
+    const items: CompletionItem[] = [];
+    const seen = new Set<string>();
+    const add = (label: string, k: string, detail: string | null | undefined = '') => {
+      if (seen.has(k + ':' + label) || !label.toLowerCase().startsWith(w) || (!explicit && label === word)) return;
+      seen.add(k + ':' + label);
+      items.push({ label, kind: k, detail: detail ?? '' });
+    };
+    if (kind === 'member') for (const m of names.members) add(m, 'fn', 'method');
+    else if (kind === 'table') for (const [t, cols] of schema.tables) add(t, cols.kind ?? 'table');
+    else if (kind === 'column') for (const [t, cols] of schema.tables) for (const c of cols) add(c.name, 'col', `${t}.${c.type ?? ''}`);
+    else {
+      for (const g of names.globals) add(g, 'fn', 'smaltdf');
+      add('db', 'var', 'the open database');
+      add('show', 'fn', 'show a value as a result');
+      for (const k of TS_KEYWORDS) add(k, 'kw');
+    }
     return { items: items.slice(0, 60), start };
   }
 
