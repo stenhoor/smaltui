@@ -16,7 +16,6 @@
 //     { "connection": "api", "url": "https://example.com/v1/" }
 //   ],
 //   "queries": [ { "title": "Top cities", "sql": "SELECT …" } ],
-//   "notebooks": [ { "title": "Cities", "cells": [ { "kind": "sql", "source": "SELECT …" }, { "kind": "df", "source": "_1.head(5)" } ] } ],
 //   "open": ["cities"]
 // }
 //
@@ -25,7 +24,6 @@
 import { importCSV, importJSON, registerFile, type Database } from './engine.js';
 import { quoteIdent, quoteLiteral, type SqlValue } from './sql.js';
 import { normalizeDataUrl } from '../vendor/smaltkit/urls.js';
-import type { NotebookDoc } from './notebook.js';
 
 export type DataFormat = 'csv' | 'tsv' | 'json' | 'ndjson' | 'parquet';
 
@@ -71,8 +69,6 @@ export interface Manifest {
   init?: 'always' | 'once';
   steps?: ManifestStep[];
   queries?: SavedQuery[];
-  /** Notebooks opened in tabs (not run: a notebook runs when its Run button is pressed, or with ?nb=). */
-  notebooks?: NotebookDoc[];
   open?: string[];
   /** The URL the manifest was loaded from (set by fetchManifest; relative paths resolve against it). */
   __base?: string;
@@ -216,7 +212,6 @@ export interface ExportOptions {
   dbName: string;
   includeData?: boolean;
   queries?: SavedQuery[];
-  notebooks?: NotebookDoc[];
 }
 
 interface SchemaObject {
@@ -226,7 +221,7 @@ interface SchemaObject {
   sql: string | null;
 }
 
-export async function exportManifest(db: Database, { name, dbName, includeData = true, queries = [], notebooks = [] }: ExportOptions): Promise<Manifest> {
+export async function exportManifest(db: Database, { name, dbName, includeData = true, queries = [] }: ExportOptions): Promise<Manifest> {
   const objects = await db.query<SchemaObject>('SELECT type, name, tbl_name, sql FROM sqlite_schema', []);
   const steps: ManifestStep[] = [];
   const conns = objects.filter((o) => o.type === 'connection');
@@ -249,7 +244,6 @@ export async function exportManifest(db: Database, { name, dbName, includeData =
     init: 'always',
     steps,
     queries,
-    ...(notebooks.length ? { notebooks } : {}),
   };
 }
 

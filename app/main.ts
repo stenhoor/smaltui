@@ -4,7 +4,6 @@ import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, qu
 import { Editor, type EditorSchema, type SchemaTable } from './editor.js';
 import { Grid, formatValue, plainValue, exportRows, type Column, type ExportFormat, type Row, type SortDir, type Value } from './grid.js';
 import { normalizeDataUrl, corsHint } from '../vendor/smaltkit/urls.js';
-import { Notebook, asNotebook, type NotebookDoc } from './notebook.js';
 import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
 import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet, type DataFormat, type Manifest, type ReaderOptions } from './env.js';
 
@@ -193,7 +192,7 @@ interface OpenCursor {
   close(): Promise<void>;
 }
 
-type TabKind = 'query' | 'table' | 'import' | 'history' | 'welcome' | 'notebook';
+type TabKind = 'query' | 'table' | 'import' | 'history' | 'welcome';
 
 interface TabBase {
   id: number;
@@ -331,13 +330,7 @@ interface WelcomeTab extends TabBase {
   kind: 'welcome';
 }
 
-interface NotebookTab extends TabBase {
-  kind: 'notebook';
-  doc: NotebookDoc;
-  nb: Notebook;
-}
-
-type Tab = QueryTab | TableTab | ImportTab | HistoryTab | WelcomeTab | NotebookTab;
+type Tab = QueryTab | TableTab | ImportTab | HistoryTab | WelcomeTab;
 
 /** Placeholder for a tab field that its init() assigns before anything reads it. */
 const assignedInInit = <T,>(): T => undefined as T;
@@ -866,7 +859,7 @@ function renderTabs(): void {
     };
     el.onauxclick = (e) => e.button === 1 && closeTab(t);
     el.ondblclick = (e) => {
-      if ((t.kind === 'query' || t.kind === 'notebook') && !closest(e, '.tab-close')) renameTab(t);
+      if (t.kind === 'query' && !closest(e, '.tab-close')) renameTab(t);
     };
     el.ondragstart = (e) => e.dataTransfer?.setData('text/x-tab', String(t.id));
     el.ondragover = (e) => e.preventDefault();
@@ -920,10 +913,6 @@ async function renameTab(t: Tab): Promise<void> {
   });
   if (name) {
     t.title = name;
-    if (t.kind === 'notebook') {
-      t.nb.title = name;
-      t.doc = t.nb.doc();
-    }
     renderTabs();
     saveQueryTabs();
   }
@@ -932,71 +921,6 @@ async function renameTab(t: Tab): Promise<void> {
 function saveQueryTabs(): void {
   const tabs = app.tabs.filter((t): t is QueryTab => t.kind === 'query').map((t) => ({ title: t.title, sql: t.editor?.value ?? t.sql ?? '' }));
   prefs.set('queryTabs', tabs);
-  prefs.set('notebookTabs', app.tabs.filter((t): t is NotebookTab => t.kind === 'notebook').map((t) => t.doc));
-}
-
-// ================================================================ notebooks
-
-let notebookSeq = 0;
-
-function notebookTab(doc: NotebookDoc): NotebookTab {
-  const tab: NotebookTab = {
-    id: 0,
-    el: blankPane(),
-    kind: 'notebook',
-    title: doc.title,
-    icon: '✎',
-    tooltip: `${doc.title}: SQL and dataframe cells (double-click to rename)`,
-    doc,
-    nb: assignedInInit<Notebook>(),
-    init() {
-      this.nb = new Notebook(
-        {
-          db,
-          schema: () => app.schema,
-          refreshSchema,
-          onChange: (d) => {
-            this.doc = d;
-            saveQueryTabs();
-          },
-          onBusy: (busy) => {
-            this.busy = busy;
-            renderTabs();
-          },
-          showValue,
-          toast,
-        },
-        doc,
-      );
-      this.el.appendChild(this.nb.el);
-    },
-  };
-  return tab;
-}
-
-/** Open a notebook in a tab (or show it if one with the same title is open). */
-function openNotebook(doc?: NotebookDoc, { run = false }: { run?: boolean } = {}): NotebookTab {
-  const existing = doc && app.tabs.find((t): t is NotebookTab => t.kind === 'notebook' && t.title === doc.title);
-  const tab = existing || addTab(notebookTab(doc ?? { title: `Notebook ${++notebookSeq}`, cells: [{ kind: 'sql', source: '' }, { kind: 'df', source: '' }] }));
-  activateTab(tab);
-  saveQueryTabs();
-  if (run) void tab.nb.runAll();
-  else if (!doc) tab.nb.focus();
-  return tab;
-}
-
-async function openNotebookFile(): Promise<void> {
-  const input = h<HTMLInputElement>('<input type="file" accept=".json,application/json">');
-  input.onchange = async () => {
-    const f = input.files?.[0];
-    if (!f) return;
-    try {
-      openNotebook(asNotebook(JSON.parse(await f.text())));
-    } catch (e) {
-      toast(errText(e), 'err');
-    }
-  };
-  input.click();
 }
 
 function insertIntoEditor(text: string): void {
@@ -2313,9 +2237,6 @@ async function loadEnvironment(url: string | null, { manifest = null, force = fa
   for (const q of m.queries ?? []) {
     if (!app.tabs.some((t) => t.kind === 'query' && t.editor?.value.trim() === q.sql.trim())) newQueryTab({ title: q.title, sql: q.sql });
   }
-  for (const nb of m.notebooks ?? []) {
-    if (!app.tabs.some((t) => t.kind === 'notebook' && t.title === nb.title)) addTab(notebookTab(asNotebook(nb)));
-  }
   for (const t of m.open ?? []) if (app.schema.tables.has(t)) openTableTab(t);
   // Drop the starter tab if it is still empty.
   for (const t of [...app.tabs]) if (t.kind === 'query' && !t.editor.value.trim() && app.tabs.length > 1) closeTab(t, true);
@@ -2326,19 +2247,18 @@ async function loadEnvironment(url: string | null, { manifest = null, force = fa
 
 async function exportEnvironmentDialog(): Promise<void> {
   if (!app.db) return;
-  const r = await modal<'sql' | { data: boolean; queries: boolean; notebooks: boolean; name: string } | null>({
+  const r = await modal<'sql' | { data: boolean; queries: boolean; name: string } | null>({
     title: 'Export database',
-    body: `<p>Save <b>${esc(app.dbName)}</b> as an environment manifest: its schema, the rows of local tables (as JSON), external tables and connections (by reference, never credentials), and your open query and notebook tabs. Serve the file with smaltui and open <code>?env=&lt;path&gt;</code> to recreate it anywhere.</p>
-      <div class="checks"><label><input type="checkbox" name="data" checked> Include table data</label><label><input type="checkbox" name="queries" checked> Include query tabs</label><label><input type="checkbox" name="notebooks" checked> Include notebooks</label></div>
+    body: `<p>Save <b>${esc(app.dbName)}</b> as an environment manifest: its schema, the rows of local tables (as JSON), external tables and connections (by reference, never credentials), and your open query tabs. Serve the file with smaltui and open <code>?env=&lt;path&gt;</code> to recreate it anywhere.</p>
+      <div class="checks"><label><input type="checkbox" name="data" checked> Include table data</label><label><input type="checkbox" name="queries" checked> Include query tabs</label></div>
       <label class="field"><span>Name</span><input type="text" name="name" value="${esc(app.dbName)}"></label>`,
-    buttons: [{ label: 'Cancel', value: null }, { label: 'SQL dump instead', value: 'sql' }, { label: 'Download manifest', primary: true, value: (f) => ({ data: f.data.checked, queries: f.queries.checked, notebooks: f.notebooks.checked, name: f.name.value }) }],
+    buttons: [{ label: 'Cancel', value: null }, { label: 'SQL dump instead', value: 'sql' }, { label: 'Download manifest', primary: true, value: (f) => ({ data: f.data.checked, queries: f.queries.checked, name: f.name.value }) }],
   });
   if (!r) return;
   try {
     if (r === 'sql') return download(`${app.dbName}.sql`, await exportSqlDump(app.db), 'application/sql');
     const queries = r.queries ? app.tabs.filter((t): t is QueryTab => t.kind === 'query' && !!t.editor.value.trim()).map((t) => ({ title: t.title, sql: t.editor.value })) : [];
-    const notebooks = r.notebooks ? app.tabs.filter((t): t is NotebookTab => t.kind === 'notebook').map((t) => t.nb.doc()) : [];
-    const m = await exportManifest(db(), { name: r.name, dbName: app.dbName ?? 'smaltui', includeData: r.data, queries, notebooks });
+    const m = await exportManifest(db(), { name: r.name, dbName: app.dbName ?? 'smaltui', includeData: r.data, queries });
     download(`${app.dbName}.env.json`, JSON.stringify(m, null, 2), 'application/json');
   } catch (e) {
     toast(errText(e), 'err');
@@ -2422,10 +2342,9 @@ function welcomeTab(): WelcomeTab {
         <p class="lead">A SQL console for <a href="https://smaltdb.dev" target="_blank" rel="noopener">smaltdb</a> that runs entirely in the browser. Databases live in this browser's private storage (OPFS) or in memory, and the page fetches only the files and URLs you import or link.</p>
         <div class="quick">
           <button data-q="query"><b>⌨ New query</b><span>Write SQL with highlighting, completion and bind variables.</span></button>
-          <button data-q="notebook"><b>✎ New notebook</b><span>Mix SQL and smaltdf dataframe cells, run top to bottom.</span></button>
           <button data-q="import"><b>⇣ Import a file</b><span>Load CSV, TSV, JSON, NDJSON or Parquet into a table.</span></button>
           <button data-q="link"><b>⇄ Link a source</b><span>Query a file or URL in place as an external table.</span></button>
-          <button data-q="demo"><b>★ Open the demo</b><span>A sample environment with tables, a view, saved queries and a notebook.</span></button>
+          <button data-q="demo"><b>★ Open the demo</b><span>A sample environment with tables, a view and saved queries.</span></button>
           <button data-q="db"><b>▤ Databases</b><span>Open, create or delete databases stored in this browser.</span></button>
         </div>
         <p class="lead" style="font-size:12px">Engine: ${esc(app.engine?.label ?? '—')}${v?.version ? ` · smaltdb ${esc(v.version)}` : ''}${v?.source === 'checkout' && v.commit ? ` @ <code>${esc(v.commit.slice(0, 10))}</code>` : ''}. Shortcuts: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> run script · <kbd>Ctrl</kbd>+<kbd>E</kbd> explain · <kbd>Ctrl</kbd>+<kbd>Space</kbd> complete.</p>
@@ -2435,7 +2354,6 @@ function welcomeTab(): WelcomeTab {
         if (!b) return;
         const q = b.dataset.q!;
         if (q === 'query') newQueryTab();
-        else if (q === 'notebook') openNotebook();
         else if (q === 'import') openImportTab('import');
         else if (q === 'link') openImportTab('link');
         else if (q === 'db') dbPicker();
@@ -2516,7 +2434,6 @@ function toggleTheme() {
 function wireChrome() {
   $('#dbPicker').onclick = () => dbPicker();
   $('#btnNewQuery').onclick = () => newQueryTab();
-  $('#btnNotebook').onclick = () => openNotebook();
   $('#btnImport').onclick = () => openImportTab();
   $('#btnHistory').onclick = () => openHistoryTab();
   $('#btnMore').onclick = () => ($('#moreMenu').hidden = !$('#moreMenu').hidden);
@@ -2528,7 +2445,6 @@ function wireChrome() {
     if (act === 'export-env') exportEnvironmentDialog();
     else if (act === 'export-sql') exportSqlDump(db()).then((s) => download(`${app.dbName}.sql`, s, 'application/sql')).catch((err) => toast(errText(err), 'err'));
     else if (act === 'load-env') openImportTab('env');
-    else if (act === 'open-nb') openNotebookFile();
     else if (act === 'engine') engineDialog();
     else if (act === 'theme') toggleTheme();
     else if (act === 'shortcuts') shortcutsDialog();
@@ -2587,23 +2503,10 @@ async function init() {
     const n = /^Query (\d+)$/.exec(q.title);
     if (n) querySeq = Math.max(querySeq, Number(n[1]));
   }
-  const savedNotebooks = prefs.get<NotebookDoc[]>('notebookTabs', []);
-  for (const nb of savedNotebooks) {
-    const n = /^Notebook (\d+)$/.exec(nb.title);
-    if (n) notebookSeq = Math.max(notebookSeq, Number(n[1]));
-  }
-  const restoreNotebooks = () => {
-    for (const nb of savedNotebooks) {
-      try {
-        addTab(notebookTab(asNotebook(nb)));
-      } catch {}
-    }
-  };
   const envUrl = params.get('env');
   try {
     if (envUrl) {
       for (const q of saved) addTab(queryTab(q.title, q.sql));
-      restoreNotebooks();
       await loadEnvironment(envUrl);
     } else {
       const last = prefs.get<{ name: string; storage: Storage } | null>('lastDb', null);
@@ -2612,7 +2515,6 @@ async function init() {
       await openDatabase(name, storage);
       if (!saved.length) addTab(welcomeTab());
       for (const q of saved) addTab(queryTab(q.title, q.sql));
-      restoreNotebooks();
       if (!saved.length) newQueryTab({ sql: '-- Ctrl+Enter runs the statement under the cursor\nSELECT \'hello, smaltdb\' AS greeting, datetime(\'now\') AS now;\n' });
       activateTab(app.tabs.find((t) => t.kind === 'welcome') ?? app.tabs[0]);
     }
@@ -2625,14 +2527,6 @@ async function init() {
         await openDatabase('scratch', 'memory');
       } catch {}
     }
-  }
-  // ?nb=<title or number> opens one of the environment's notebooks and runs it (the landing page links the demo's).
-  const nbParam = params.get('nb');
-  if (nbParam && app.db) {
-    const list = app.env?.notebooks ?? [];
-    const doc = list.find((n) => n.title === nbParam) ?? list[Number(nbParam) - 1];
-    if (doc) openNotebook(asNotebook(doc), { run: true });
-    else toast(`No notebook “${nbParam}” in this environment`, 'err');
   }
   // ?sql=… opens (and runs) a shared query, e.g. from the landing page's console. It is removed
   // from the URL so a reload does not open it again.

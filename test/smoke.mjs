@@ -62,18 +62,8 @@ async function check(browser) {
     await checkBrand(page, 'workbench');
     const engine = await page.locator('#stEngine').textContent();
     if (/vendor copy missing/.test(engine)) throw new Error(`workbench engine: ${engine} (the built site is not what is being served)`);
-
-    // The demo notebook: SQL and smaltdf cells all run (smaltdf is loaded from workbench/vendor/smaltdf/).
-    await page.goto(base + 'workbench/?env=envs/demo/env.json&nb=Shop%20analysis', { waitUntil: 'load' });
-    await page.waitForFunction(() => {
-      const outs = [...document.querySelectorAll('.pane.active .nb-out')];
-      return outs.length > 0 && outs.every((o) => !o.hidden && !o.classList.contains('running'));
-    }, null, { timeout: 45000 });
-    const nbErrs = await page.evaluate(() => [...document.querySelectorAll('.pane.active .nb-out.err')].map((o) => o.textContent.trim()));
-    if (nbErrs.length) throw new Error(`demo notebook: ${nbErrs.join(' | ')}`);
-    const cells = await page.locator('.pane.active .nb-cell').count();
     if (pageErrors.length) throw new Error(`page errors: ${pageErrors.join(' | ')}`);
-    return `home: ok; console: "${landing}"; workbench: demo loaded; notebook: ${cells} cells ran; engine: ${engine.trim()}`;
+    return `home: ok; console: "${landing}"; workbench: demo loaded; engine: ${engine.trim()}`;
   } finally {
     await ctx.close();
   }

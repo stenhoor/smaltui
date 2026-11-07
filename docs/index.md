@@ -15,9 +15,8 @@ hero:
       link: /workbench/?env=envs/demo/env.json
       target: _self
     - theme: alt
-      text: Open the demo notebook
-      link: /workbench/?env=envs/demo/env.json&nb=Shop%20analysis
-      target: _self
+      text: Try the live console
+      link: '#demo'
     - theme: alt
       text: Getting started
       link: /guide/
@@ -27,10 +26,8 @@ features:
     details: Tables, views, materialized views, external tables and connections, with columns and keys. Right-click an object to script SELECT, INSERT or DDL, count rows, refresh or drop it.
   - title: Query editor
     details: Tabs with highlighting and completion of names and aliases. Run the statement at the cursor or a whole script, with bind variables, query plans, and syntax errors marked where they occur.
-  - title: Notebooks
-    details: Cells of SQL (smaltql) and dataframes (smaltdf) that run top to bottom, each building on the one before. See the SQL a frame runs.
-    link: /guide/notebooks
-    linkText: Notebooks
+  - title: Databases and history
+    details: Open, create and delete databases kept in your browser, or work in memory. Every statement you run is in a searchable history, per database.
   - title: Data grids
     details: Virtualized results fetched on demand. Browse tables with paging, sorting and a WHERE filter; edit cells and add or delete rows in tables with a primary key.
   - title: Import and link
@@ -38,7 +35,7 @@ features:
     link: /guide/import
     linkText: Import and link
   - title: Environments
-    details: A JSON manifest builds a database when the page opens, with its schema, data, linked sources, saved queries and notebooks. Share a link and others get the same workspace.
+    details: A JSON manifest builds a database when the page opens, with its schema, data, linked sources, and saved queries. Share a link and others get the same workspace.
     link: /guide/environments
     linkText: Environments
 ---

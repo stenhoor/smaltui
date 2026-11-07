@@ -32,7 +32,7 @@ createServer((req, res) => {
   let path = normalize(join(root, decodeURIComponent(url.pathname)));
   if (!path.startsWith(root)) return void res.writeHead(403).end();
   try {
-    // Clean URLs, as GitHub Pages serves them (the VitePress site links /guide/notebooks for notebooks.html).
+    // Clean URLs, as GitHub Pages serves them (the VitePress site links /guide/import for import.html).
     if (!extname(path)) {
       try {
         statSync(path);
