@@ -2,8 +2,7 @@
 
 Beside its SQL tabs, the workbench has TypeScript tabs (**ƒ TypeScript**): an editor for
 [smaltdf](https://stenhoor.github.io/smaltdf/), smaltdb's dataframe language. Frames and expressions build plans that
-run in the same engine as SQL, on the same database. The demo has one:
-[Frames (smaltdf)](/workbench/?env=envs/demo/env.json){target="_self"}.
+run in the same engine as SQL, on the same database. The **Demo** has one: its **Frames (smaltdf)** tab.
 
 ```ts
 const lines = table('orders')
