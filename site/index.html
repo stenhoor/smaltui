@@ -43,6 +43,7 @@
       <div class="cta">
         <a class="btn primary big" href="workbench/?env=envs/demo/env.json">Open the demo workbench</a>
         <a class="btn big" href="#try">Run a query below</a>
+        <a class="btn big" href="workbench/?env=envs/demo/env.json&amp;nb=Shop%20analysis">Open the demo notebook</a>
         <a class="quiet" href="workbench/">or start with an empty database →</a>
       </div>
       <ul class="facts">
@@ -86,6 +87,7 @@
         <article><h3>Object explorer</h3><p>Tables, views, materialized views, external tables and connections, with columns and keys. Right-click an object to script SELECT, INSERT or DDL, count rows, refresh or drop it.</p></article>
         <article><h3>Query editor</h3><p>Tabs with highlighting and completion of names and aliases. Run the statement at the cursor or a whole script. Bind variables, query plans, and syntax errors marked where they occur.</p></article>
         <article><h3>Data grids</h3><p>Virtualized results that are fetched on demand. Browse tables with paging, sorting and a WHERE filter. Edit cells and add or delete rows in tables with a primary key.</p></article>
+        <article><h3>Notebooks</h3><p>Cells of SQL (smaltql) and dataframes (smaltdf) that run top to bottom. Each cell's result feeds the next: group a query's rows with <code>_1.groupBy(…)</code>, join JavaScript data, see the SQL a frame runs.</p></article>
         <article><h3>Import &amp; link</h3><p>Load CSV, TSV, JSON, NDJSON or Parquet into a table. Or link a file or URL as an external table that is read in place.</p></article>
         <article><h3>Environments</h3><p>A JSON manifest builds a database when the page opens: its schema, data, linked sources and saved queries. Share a link and others get the same workspace.</p></article>
         <article><h3>Your data stays in your browser</h3><p>Databases live in your browser's private storage (OPFS) or in memory. The page fetches only the files and URLs you import or link.</p></article>

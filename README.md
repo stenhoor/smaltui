@@ -38,6 +38,22 @@ full workbench is at [`/workbench/`](https://stenhoor.github.io/smaltui/workbenc
   - Results are fetched on demand: the first 1,000 rows, then **Fetch more** or **Fetch all**. Grids are virtualized.
   - Syntax errors mark the failing token in the editor. `Esc` or **Stop** cancels a running statement.
   - Export results as CSV, JSON or INSERT statements, copy them as TSV, or save them as a new table.
+- **Notebooks** (**✎ Notebook**): cells of SQL and dataframes that run top to bottom, against the open database.
+  - *SQL cells* run in [smaltql](https://github.com/stenhoor/smaltql), with the query editor's highlighting and
+    completion. The last statement that returns rows is shown (its first 1,000 rows).
+  - *Dataframe cells* use [smaltdf](https://github.com/stenhoor/smaltdf), the Polars expression API compiled to SQL:
+    `pl`, `col`, `lit`, `when`, `len`, `sum`, `mean`, … are in scope. The cell is JavaScript; its value is its last
+    expression, or what it `return`s. LazyFrames and DataFrames are shown as grids, other values as text.
+  - Each cell's result is `_1`, `_2`, … for the cells below it (`_` is the one just above). A SQL cell's result is a
+    LazyFrame over its query, so `_1.groupBy('category').agg(col('amount').sum())` builds on it, in the engine.
+  - `Ctrl+Enter` runs a cell, `Shift+Enter` runs it and moves on, **Run all** runs every cell; an error stops the run.
+  - Notebooks are kept with the open tabs in this browser, saved as `.smaltnb.json` files (**Save file**, **⋯ → Open
+    notebook file**), and carried in environment manifests (`"notebooks"`). `?nb=<title>` opens one of the
+    environment's notebooks and runs it: the demo has
+    [Shop analysis](https://stenhoor.github.io/smaltui/workbench/?env=envs/demo/env.json&nb=Shop%20analysis).
+  - Dataframe cells run JavaScript in the page, like the browser console, and only when you press Run: open notebook
+    files from people you trust. (Notebooks in TypeScript, with charts, are what smaltnb, the family's notebook
+    product, is for.)
 - **Table viewer:** paged data with server-side sorting (click a header) and a free-form `WHERE` filter. Columns,
   indexes, constraints and highlighted DDL. For external tables it shows the source; for materialized views, refresh
   controls. In tables with a primary key you can edit a cell (double-click or `Enter`; `Ctrl+Delete` sets NULL),
@@ -126,6 +142,8 @@ after every `npm ci` or `npm install`. `scripts/vendor-smaltdb.mjs` then bundles
 - `smaltdb-worker.js`: the engine worker (`defineWorker({ languages: [sqlLanguage], plugins: [io, external, parquet] })`);
 - `chunks/`: hyparquet-compressors, loaded on first use for compressed Parquet files;
 - `VERSION.json` (the pinned commits) and `THIRD_PARTY_NOTICES.txt` (licences of the bundled third-party code).
+
+and `vendor/smaltdf/smaltdf.js`, smaltdf (`@smaltdb/df`) for notebook cells, loaded on first use.
 
 `vendor/` is generated, not committed. The page loads the engine from there, from the same origin, so it works offline
 and under cross-origin isolation.
@@ -226,12 +244,14 @@ app/editor.ts         SQL editor (highlight overlay, completion, shortcuts)
 app/grid.ts           virtualized data grid
 app/sql.ts            tokenizer, statement splitter, parameter scanner, formatter
 app/engine.ts         smaltui's engine settings for smaltkit's loader, and the plugins' client helpers
+app/notebook.ts       notebooks: SQL (smaltql) and dataframe (smaltdf) cells
 app/env.ts            environment manifests: types, load, export, SQL dump
 app/store.ts          localStorage prefs/history, IndexedDB file handles
 app/globals.d.ts      File System Access API declarations missing from TypeScript's DOM library
 site/demo.ts          the landing page's live console
 (app|site)/*.js       compiled output (npm run compile; not committed)
 vendor/smaltdb/       engine: smaltdb, smaltql and plugins, bundled by npm run deps (not committed)
+vendor/smaltdf/       smaltdf for notebooks, bundled by npm run deps (not committed)
 vendor/smaltkit/      shared modules (engine loader and OPFS catalog, data-URL rewriting, CORS hints), copied from node_modules/smaltkit on install (not committed)
 envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)
