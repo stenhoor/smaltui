@@ -12,7 +12,7 @@
 
 **Small. Alternative. Query.**
 
-A SQL console for [smaltdb](https://smaltdb.dev) that runs entirely in the browser. smaltui is in the spirit of Toad:
+A query workbench for [smaltdb](https://smaltdb.dev) that runs entirely in the browser. smaltui is in the spirit of Toad:
 an object explorer, tabbed SQL editors, data grids you can browse and edit, and import tools. It is a **static site**:
 the engine runs in a Web Worker in each visitor's browser, and databases are stored in that browser's private storage
 (OPFS) or in memory.
@@ -22,8 +22,9 @@ the engine runs in a Web Worker in each visitor's browser, and databases are sto
 Serve the folder from any static host and you have a live environment. Add `?env=…` and the page builds a ready-made
 database (schema, data, linked sources, saved queries) when it opens.
 
-**Live demo:** <https://stenhoor.github.io/smaltui/>. The site has a guide and a live SQL console over the demo database. The
-full workbench is at [`/workbench/`](https://stenhoor.github.io/smaltui/workbench/?env=envs/demo/env.json).
+**Live demo:** the site's **Demo** opens the workbench on the demo database:
+<https://stenhoor.github.io/smaltui/workbench/?env=envs/demo/env.json>. The site, with the guide, is at
+<https://stenhoor.github.io/smaltui/>.
 
 ## Features
 
@@ -151,7 +152,7 @@ changes it). Any static host works. `npm run preview` builds it and serves it at
 
 ```
 dist/                                     the product site: docs/, built with VitePress on the smaltworks docs theme
-dist/console.html, console.css, demo.js   the live SQL console (from site/), embedded in the home page
+dist/console.html, console.css, demo.js   the live SQL console (from site/), a page of its own
 dist/workbench/                           the workbench: index.html, app/, vendor/, envs/
 ```
 
@@ -235,7 +236,7 @@ the Chevron mark, the Kiln palette, Geist / Geist Mono / Martian Mono, and the t
 ```
 index.html            workbench page shell (served at /workbench/ in the built site)
 docs/                 the product site (VitePress on the smaltworks docs theme): home page and guide
-site/                 the live console page (console.html, demo.ts), embedded in the home page
+site/                 the live console page (console.html, demo.ts), a page of its own
 app/main.ts           application: tabs, explorer, query runner, table viewer, import, history
 app/editor.ts         code editor (highlight overlay, completion, shortcuts): SQL, and TypeScript for smaltdf tabs
 app/grid.ts           virtualized data grid

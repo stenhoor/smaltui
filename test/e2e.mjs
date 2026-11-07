@@ -308,12 +308,18 @@ try {
       }));
       const shown = Object.fromEntries(home.imgs);
       if (home.name !== 'smaltui' || home.text !== 'Small. Alternative. Query.' || !home.icon) throw new Error('home: ' + JSON.stringify(home));
-      for (const img of ['lockup.svg', 'work-in-progress.svg', 'powered-by-smaltdb.svg', 'powered-by-smaltql.svg', 'a-smaltworks-project.svg']) {
+      // The family's shared footer and stage badge (smalt-brand BRAND.md, "Sites and READMEs").
+      for (const img of ['lockup.svg', 'work-in-progress.svg', 'a-smaltworks-project.svg']) {
         if (!shown[img]) throw new Error(`home: ${img} not shown: ${JSON.stringify(home.imgs)}`);
       }
       // Light and dark versions are switched by CSS: one of each badge shows.
       if (home.imgs.filter(([n]) => /-on-dark\.svg$/.test(n)).length) throw new Error('home (light) shows dark badges: ' + JSON.stringify(home.imgs));
-      if (!(await page.locator('#consoleFrame').count())) throw new Error('home: no live console');
+      // The home page embeds no demo; the Demo nav item opens the workbench (smalt-brand BRAND.md, rule 12).
+      if (await page.locator('iframe').count()) throw new Error('home: embeds a demo');
+      const demo = await page.locator('.VPNavBarMenu a').first().evaluate((a) => [a.textContent.trim(), a.getAttribute('href')]);
+      if (demo[0] !== 'Demo' || !/workbench\/\?env=envs\/demo\/env\.json$/.test(demo[1] ?? '')) throw new Error('home: first nav item is not Demo -> workbench: ' + JSON.stringify(demo));
+      const heroActions = await page.locator('.VPHero .actions a').evaluateAll((as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href')]));
+      if (JSON.stringify(heroActions) !== JSON.stringify([['Getting started', '/smaltui/guide/']])) throw new Error('home: the hero should have one button, Getting started: ' + JSON.stringify(heroActions));
       // The live console (embedded in the home page) runs its first example.
       await page.goto(siteBase + 'console.html');
       await page.waitForFunction(() => /rows? in|Could not|could not/.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 20000 });
@@ -323,6 +329,11 @@ try {
       await page.goto(siteBase + 'guide/import');
       const h1 = await page.locator('.vp-doc h1').textContent({ timeout: 10000 }).catch(() => null);
       if (!/^\s*Import and link data\b/.test(h1 ?? '')) throw new Error(`guide/import did not render: ${JSON.stringify(h1)}`);
+      // A guide page shows the stage badge at the top and "A smaltworks project" at its foot (VitePress hides its footer
+      // on pages with a sidebar), one of each light / dark pair.
+      const guideBadges = await page.evaluate(() =>
+        ['.sw-stage img', '.sw-project img'].map((sel) => [...document.querySelectorAll(sel)].filter((i) => i.checkVisibility() && i.complete && i.naturalWidth > 0).length));
+      if (guideBadges.join() !== '1,1') throw new Error(`guide/import: stage and smaltworks badges shown ${guideBadges.join(', ')} times, not once each`);
       await page.goto(siteBase + 'console.html');
       await page.waitForFunction(() => /rows? in/.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 20000 });
       // Every local CSS/JS reference is versioned, so a deploy never mixes new pages with cached old assets.

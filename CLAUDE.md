@@ -1,8 +1,21 @@
 # CLAUDE.md
 
-smaltui is a static, in-browser SQL workbench for [smaltdb](https://github.com/stenhoor/smaltdb), plus a product site
-with a live console. Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this
+smaltui is a static, in-browser query workbench for [smaltdb](https://github.com/stenhoor/smaltdb), plus a product site
+whose Demo opens it on sample data. Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this
 file is the shared starting point. smaltdb has the matching file (stenhoor/smaltdb#30); keep the working rules the same.
+
+## Brand: read smalt-brand first
+
+Before changing this repository's site, README, or how it describes the product, read smalt-brand's
+[BRAND.md](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md) (the family table, and "Sites and READMEs", the
+standard every product site and README follows) and
+[DECISIONS.md](https://github.com/stenhoor/smalt-brand/blob/main/DECISIONS.md). A newer decision there wins over any
+copy here: lines and roles change, and a copy taken before the change is out of date.
+
+- Copy brand files and the site kit (`themes/vitepress/`) unchanged. To change them, change smalt-brand first, then
+  copy them again.
+- A change to this product's status or to what it does comes with a smalt-brand PR that updates smaltworks.dev (its
+  status page and this product's page), linked with `Depends on:`.
 
 ## Commands
 
@@ -32,7 +45,7 @@ npm install --no-save playwright && npx playwright install --with-deps chromium
 ## Repo map
 
 - `app/` is the workbench, `docs/` the product site (VitePress on smalt-brand's docs theme, like smaltworks.dev and
-  smaltbi), `site/` the live console it embeds, `envs/` the environments (demo data and manifests).
+  smaltbi), `site/` the standalone live console page, `envs/` the environments (demo data and manifests).
 - Sources are TypeScript (strict): edit `app/*.ts` and `site/*.ts`. `scripts/compile.mjs` writes a `.js` beside each one
   (gitignored), which the pages load. Keep imports as `./name.js` (they resolve to the `.ts` when type checking).
 - `scripts/` holds the vendor, build and serve scripts. `test/e2e.mjs` is the test suite (`npm test`); it also runs

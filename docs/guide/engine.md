@@ -48,7 +48,7 @@ changes it). Any static host works. `npm run preview` builds it and serves it at
 
 ```
 dist/                                     the product site: docs/, built with VitePress on the smaltworks docs theme
-dist/console.html, console.css, demo.js   the live SQL console (from site/), embedded in the home page
+dist/console.html, console.css, demo.js   the live SQL console (from site/), a page of its own
 dist/workbench/                           the workbench: index.html, app/, vendor/, envs/
 ```
 

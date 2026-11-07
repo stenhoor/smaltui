@@ -31,8 +31,6 @@ const FILES = [
   'badges/powered-by-smaltui-on-dark.svg',
   'badges/powered-by-smaltql.svg',
   'badges/powered-by-smaltql-on-dark.svg',
-  'badges/powered-by-smaltdf.svg',
-  'badges/powered-by-smaltdf-on-dark.svg',
   // Before 1.0 (BRAND.md): the stage badge, and the smaltworks endorsement for footers and READMEs.
   'badges/work-in-progress.svg',
   'badges/work-in-progress-on-dark.svg',
@@ -41,6 +39,9 @@ const FILES = [
   // The family docs theme (smaltdb.dev, smaltworks.dev, smaltbi): the site in docs/ is built on it.
   'themes/vitepress/smaltdb.css',
   'themes/vitepress/shiki.ts',
+  // The smaltworks menu and footer, and the stage and "A smaltworks project" badges (BRAND.md, "Sites and READMEs").
+  'themes/vitepress/smaltworks.ts',
+  'themes/vitepress/stage.ts',
 ];
 
 const args = process.argv.slice(2);
