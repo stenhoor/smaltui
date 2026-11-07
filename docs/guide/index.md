@@ -6,7 +6,7 @@ smaltui is a static site: open it, and the engine starts in your browser.
   The database menu at the top left opens, creates and deletes databases.
 - **[The demo](/workbench/?env=envs/demo/env.json){target="_self"}** builds a small tea-and-coffee shop from an
   [environment](./environments): tables, a view, a materialized view, a linked CSV, sales from a Parquet file, saved
-  queries and a notebook.
+  queries.
 
 ## The workbench
 
@@ -21,7 +21,6 @@ smaltui is a static site: open it, and the engine starts in your browser.
   - Results are fetched 1,000 rows at a time. Export them as CSV, JSON or INSERT statements, or save them as a table.
 - **Table viewer:** paged data with sorting and a `WHERE` filter, columns, indexes, constraints and DDL. In tables
   with a primary key, edit cells (double-click), insert and delete rows.
-- **[Notebooks](./notebooks):** SQL and dataframe cells that run top to bottom.
 - **[Import and link](./import):** load files into tables, or query them in place as external tables.
 - **History**, light and dark themes, and keyboard shortcuts (**⋯ → Keyboard shortcuts**).
 

@@ -28,8 +28,6 @@ after every `npm ci` or `npm install`. `scripts/vendor-smaltdb.mjs` then bundles
 - `chunks/`: hyparquet-compressors, loaded on first use for compressed Parquet files;
 - `VERSION.json` (the pinned commits) and `THIRD_PARTY_NOTICES.txt` (licences of the bundled third-party code).
 
-and `vendor/smaltdf/smaltdf.js`, smaltdf (`@smaltdb/df`) for notebook cells, loaded on first use.
-
 `vendor/` is generated, not committed. The page loads the engine from there, from the same origin, so it works offline
 and under cross-origin isolation.
 
@@ -64,7 +62,7 @@ after a deploy browsers fetch the new files instead of reusing cached ones; Vite
 The console runs in-browser on the demo environment, using the workbench's own engine loader, editor, grid and
 environment modules, and follows the site's light / dark switch. "Open in workbench" links to
 `workbench/?env=…&sql=…`. The `sql` parameter opens a query tab and runs it. Links to the site root that carry
-workbench parameters (`?env=`, `?db=`, `?sql=`, `?nb=`) are forwarded to `/workbench/`.
+workbench parameters (`?env=`, `?db=`, `?sql=`) are forwarded to `/workbench/`.
 
 - **GitHub Pages:** `.github/workflows/pages.yml` deploys on every push to `main`, then runs `test/smoke.mjs`
   against the live site. (Enable Pages with "GitHub Actions" as the source.) GitHub Pages cannot send COOP/COEP

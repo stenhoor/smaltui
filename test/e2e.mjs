@@ -236,35 +236,6 @@ try {
   });
   await shot('05-demo');
 
-  await step('notebook: SQL and smaltdf cells run, build on each other, and a new cell runs', async () => {
-    await page.goto(base + '?env=envs/demo/env.json&nb=Shop%20analysis');
-    const done = () => page.waitForFunction(() => {
-      const outs = [...document.querySelectorAll('.pane.active .nb-out')];
-      return outs.length > 0 && outs.every((o) => !o.hidden && !o.classList.contains('running'));
-    }, null, { timeout: 20000 });
-    await done();
-    const r = await page.evaluate(() => [...document.querySelectorAll('.pane.active .nb-cell')].map((c) => ({ err: c.querySelector('.nb-out').classList.contains('err'), text: c.querySelector('.nb-out').innerText })));
-    if (r.length !== 5 || r.some((c) => c.err)) throw new Error(JSON.stringify(r).slice(0, 600));
-    // [2] groups _1 (the SQL cell's LazyFrame) by category; [3] joins JavaScript data; [5] shows the SQL of a frame.
-    if (!/Gear\s+14798\s+215/.test(r[1].text) || !/pct_of_target/.test(r[2].text) || !/^SELECT /.test(r[4].text)) throw new Error(JSON.stringify(r.map((c) => c.text.slice(0, 120))));
-    // A new dataframe cell: JavaScript data, an expression, Ctrl+Enter.
-    await activePane().locator('.nb-add button', { hasText: 'Dataframe' }).click();
-    await page.keyboard.type("pl.DataFrame({ x: [1, 2, 3] }).lazy().select(col('x').mul(10).alias('y'))");
-    await page.keyboard.press('Control+Enter');
-    await page.waitForFunction(() => /rows? ×/.test([...document.querySelectorAll('.pane.active .nb-cell')].pop().querySelector('.nb-out').innerText), null, { timeout: 10000 }).catch(() => {});
-    const last = await page.evaluate(() => [...document.querySelectorAll('.pane.active .nb-cell')].pop().querySelector('.nb-out').innerText);
-    if (!/\by\b[\s\S]*\b10\b[\s\S]*\b20\b[\s\S]*\b30\b/.test(last)) throw new Error(`new cell: ${JSON.stringify(last)}`);
-    // An error stops the run and is shown on the cell.
-    await activePane().locator('.nb-add button', { hasText: 'SQL' }).click();
-    await page.keyboard.type('SELECT * FROM no_such_table');
-    await page.keyboard.press('Control+Enter');
-    await page.waitForSelector('.pane.active .nb-out.err', { timeout: 10000 });
-    // The notebook is kept with the open tabs.
-    const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('smaltui.notebookTabs') ?? '[]'));
-    if (!kept.some((n) => n.title === 'Shop analysis' && n.cells.length === 7)) throw new Error(JSON.stringify(kept).slice(0, 300));
-  });
-  await shot('06-notebook');
-
   await step('export environment round-trips', async () => {
     const m = await page.evaluate(async () => {
       const { exportManifest } = await import('/app/env.js');
@@ -319,9 +290,9 @@ try {
       const landing = await page.locator('#consoleStatus').textContent();
       if (!/rows? in/.test(landing)) throw new Error('console: ' + landing);
       // A guide page (clean URLs, as Pages serves them).
-      await page.goto(siteBase + 'guide/notebooks');
+      await page.goto(siteBase + 'guide/import');
       const h1 = await page.locator('.vp-doc h1').textContent({ timeout: 10000 }).catch(() => null);
-      if (!/^\s*Notebooks\b/.test(h1 ?? '')) throw new Error(`guide/notebooks did not render: ${JSON.stringify(h1)}`);
+      if (!/^\s*Import and link data\b/.test(h1 ?? '')) throw new Error(`guide/import did not render: ${JSON.stringify(h1)}`);
       await page.goto(siteBase + 'console.html');
       await page.waitForFunction(() => /rows? in/.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 20000 });
       // Every local CSS/JS reference is versioned, so a deploy never mixes new pages with cached old assets.

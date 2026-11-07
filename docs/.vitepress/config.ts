@@ -27,8 +27,8 @@ export default defineConfig({
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
     ['link', { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&family=Martian+Mono:wght@400;600&display=swap' }],
-    // Links made for the workbench (?env=…, ?db=…, ?sql=…, ?nb=…) used to point at the site root: forward them.
-    ['script', {}, `if (location.pathname === ${JSON.stringify(base)} && /[?&](env|db|engine|storage|sql|nb)=/.test(location.search)) location.replace(${JSON.stringify(base)} + 'workbench/' + location.search + location.hash);`],
+    // Links made for the workbench (?env=…, ?db=…, ?sql=…) used to point at the site root: forward them.
+    ['script', {}, `if (location.pathname === ${JSON.stringify(base)} && /[?&](env|db|engine|storage|sql)=/.test(location.search)) location.replace(${JSON.stringify(base)} + 'workbench/' + location.search + location.hash);`],
   ],
   markdown: { theme: { light: smaltLight, dark: smaltDark } },
   themeConfig: {
@@ -37,7 +37,6 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/guide/' },
       { text: 'Workbench', link: '/workbench/?env=envs/demo/env.json', target: '_self' },
-      { text: 'Notebook', link: '/workbench/?env=envs/demo/env.json&nb=Shop%20analysis', target: '_self' },
       {
         text: 'smaltworks',
         items: [
@@ -56,7 +55,6 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Getting started', link: '/guide/' },
-          { text: 'Notebooks', link: '/guide/notebooks' },
           { text: 'Environments', link: '/guide/environments' },
           { text: 'Import and link data', link: '/guide/import' },
           { text: 'Engine and deploy', link: '/guide/engine' },

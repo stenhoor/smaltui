@@ -23,7 +23,6 @@ https://your.host/smaltui/workbench/?env=envs/demo/env.json
     { "link": "data/exchange_rates.csv", "table": "exchange_rates", "format": "csv", "options": { "header": true } }
   ],
   "queries": [{ "title": "Revenue", "sql": "SELECT …" }],
-  "notebooks": [{ "title": "Revenue", "cells": [{ "kind": "sql", "source": "SELECT …" }, { "kind": "df", "source": "_1.head(5)" }] }],
   "open": ["orders"]
 }
 ```
@@ -35,9 +34,9 @@ https://your.host/smaltui/workbench/?env=envs/demo/env.json
   the first visit and keeps the visitor's changes after that. `"always"` rebuilds it on every visit.
 - `envs/index.json` lists the environments shown in the Import tab.
 - **⋯ → Export database as environment** writes a manifest of the open database: its schema, the rows of local
-  tables, external tables and connections by reference (never credentials), and your query and notebook tabs. **⋯ → Export as SQL
+  tables, external tables and connections by reference (never credentials), and your query tabs. **⋯ → Export as SQL
   dump** writes plain SQL.
 
 `envs/demo/` is a small tea-and-coffee shop with sample data. It has tables, indexes, a view, a materialized view,
-a linked CSV, sales data imported from a Parquet file, saved queries and the "Shop analysis"
-[notebook](./notebooks). The welcome tab opens it: [try it](/workbench/?env=envs/demo/env.json){target="_self"}.
+a linked CSV, sales data imported from a Parquet file and saved queries. The welcome tab opens it:
+[try it](/workbench/?env=envs/demo/env.json){target="_self"}.

@@ -8,10 +8,6 @@
 //   VERSION.json         the pinned commits (packed.json) and package versions
 //   THIRD_PARTY_NOTICES.txt  the licences of third-party code in the bundles
 //
-// and vendor/smaltdf/smaltdf.js: smaltdf (@smaltdb/df), the dataframe language, which notebooks load on first use. It
-// is a library on the client: it compiles frames to SQL and runs them through the database, so the worker needs
-// nothing more.
-//
 // smaltdb has no language built in (smaltdb ADR 0015): the worker registers smaltql, and optional features are
 // plugins built into it (ADR 0012). None of these packages is on npm yet: packed.json pins each to a commit, and
 // `npm run deps` (scripts/fetch-packed.mjs) builds and installs them, then runs this script. To try a local checkout:
@@ -50,17 +46,14 @@ defineWorker({ languages: [sqlLanguage], plugins: [io, external, parquet] });
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning', metafile: true, absWorkingDir: root };
-const dfOut = join(root, 'vendor', 'smaltdf');
-rmSync(dfOut, { recursive: true, force: true });
-const [client, worker, df] = await Promise.all([
+const [client, worker] = await Promise.all([
   build({ ...common, stdin: { contents: CLIENT, resolveDir: root, sourcefile: 'smaltdb-client.js' }, outfile: join(out, 'smaltdb.js') }),
   build({ ...common, stdin: { contents: WORKER, resolveDir: root, sourcefile: 'smaltdb-worker.js' }, outdir: out, entryNames: 'smaltdb-worker', splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
-  build({ ...common, entryPoints: ['@smaltdb/df'], outfile: join(dfOut, 'smaltdf.js') }),
 ]);
 
 // Notices: every package from node_modules in either bundle, other than the smaltdb family (MIT, ours).
 const packages = new Set();
-for (const r of [client, worker, df]) {
+for (const r of [client, worker]) {
   for (const input of Object.keys(r.metafile.inputs)) {
     const m = /node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(input);
     if (m) packages.add(m[1]);

@@ -359,31 +359,3 @@ dialog::backdrop { background: rgba(10, 14, 22, 0.45); }
 }
 .about-badges { margin: 0 0 12px; line-height: 0; }
 .about-badges a { display: inline-flex; border-radius: 10px; }
-
-/* notebooks (app/notebook.ts): cells in a column; the language label is the language layer's colour (smaltql, smaltdf) */
-.notebook { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.notebook .scroll-page { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px 40px; }
-.nb-status { font-size: 12px; color: var(--muted); }
-.nb-status.err { color: var(--danger); }
-.nb-cells { display: flex; flex-direction: column; gap: 12px; max-width: 1100px; }
-.nb-cell { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--panel); overflow: hidden; }
-.nb-cell:focus-within { border-color: var(--border-strong); }
-.nb-cell.is-running { border-color: var(--accent); }
-.nb-head { display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; border-bottom: 1px solid var(--border); background: var(--panel-2); font-size: 12px; }
-.nb-head .grow { flex: 1; }
-.nb-num { font: 12px var(--mono); color: var(--faint); }
-.nb-lang { font: 600 11px var(--font-brand); letter-spacing: -0.02em; color: var(--layer-language-text); }
-.nb-src .nb-editor { display: grid; min-height: 52px; }
-.nb-src .nb-editor .editor { min-height: 0; }
-.nb-code { display: block; width: 100%; min-height: 52px; resize: vertical; border: none; border-radius: 0; padding: 7px 10px; font: 13px/19px var(--mono); background: var(--panel); color: var(--text); tab-size: 2; }
-.nb-code:focus-visible { outline: none; }
-.nb-out { border-top: 1px solid var(--border); padding: 6px 8px 8px; }
-.nb-out.err { background: color-mix(in srgb, var(--danger) 7%, var(--panel)); color: var(--danger); }
-.nb-out.running { color: var(--muted); }
-.nb-msg { font-size: 13px; padding: 2px 2px 4px; }
-.nb-meta { font-size: 11.5px; color: var(--faint); padding-top: 4px; }
-.nb-grid { display: flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-.nb-grid .grid { flex: 1; }
-.nb-text { margin: 0; font: 12.5px/1.55 var(--mono); white-space: pre-wrap; max-height: 320px; overflow: auto; }
-.nb-add { display: flex; gap: 8px; margin: 12px 0 0; }
-.nb-help { max-width: 1100px; font-size: 12.5px; color: var(--muted); margin: 14px 0 0; }
