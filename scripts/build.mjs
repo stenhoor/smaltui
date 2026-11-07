@@ -16,7 +16,7 @@ import { compile } from './compile.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = resolve(root, process.argv[2] ?? 'dist');
 if (!existsSync(join(root, 'vendor/smaltdb/smaltdb.js'))) {
-  console.error('vendor/smaltdb is missing: run `npm install` (it copies the smaltdb npm package there).');
+  console.error('vendor/smaltdb is missing: run `npm run deps` (it builds the pinned smaltdb packages and bundles the engine there).');
   process.exit(1);
 }
 await compile({ quiet: true });

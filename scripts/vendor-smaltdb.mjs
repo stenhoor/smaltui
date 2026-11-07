@@ -1,54 +1,75 @@
-// Copies the smaltdb browser build into vendor/smaltdb/, the engine the page loads by default
-// (same-origin, so it works offline and under cross-origin isolation).
+// Bundles smaltui's engine into vendor/smaltdb/, the folder the page loads it from (same-origin, so it works offline
+// and under cross-origin isolation):
 //
-//   node scripts/vendor-smaltdb.mjs                    # from the installed npm package (runs on `npm install`)
-//   node scripts/vendor-smaltdb.mjs --from ../smaltdb  # bundle an unreleased local checkout instead
+//   smaltdb.js           the smaltdb client, plus the client helpers of the plugins (importCSV, registerFile, …)
+//   smaltdb-worker.js    the engine worker: smaltdb with the SQL language (smaltql) and the plugins smaltui uses,
+//                        @smaltdb/io (CSV, JSON), @smaltdb/external (files, URLs, S3, Azure) and @smaltdb/parquet
+//   chunks/              code the worker loads on first use (hyparquet-compressors, for compressed Parquet)
+//   VERSION.json         the pinned commits (packed.json) and package versions
+//   THIRD_PARTY_NOTICES.txt  the licences of third-party code in the bundles
 //
-// The npm package is the source of truth: its version is pinned in package.json / package-lock.json.
-// To move to a newer smaltdb: `npm install smaltdb@latest` (this script then runs again).
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+// smaltdb has no language built in (smaltdb ADR 0015): the worker registers smaltql, and optional features are
+// plugins built into it (ADR 0012). None of these packages is on npm yet: packed.json pins each to a commit, and
+// `npm run deps` (scripts/fetch-packed.mjs) builds and installs them, then runs this script. To try a local checkout:
+// `node scripts/fetch-packed.mjs --local smaltdb=../smaltdb && node scripts/vendor-smaltdb.mjs`.
+import { build } from 'esbuild';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'vendor', 'smaltdb');
-const args = process.argv.slice(2);
-const from = args.includes('--from') ? resolve(args[args.indexOf('--from') + 1]) : null;
+const pins = JSON.parse(readFileSync(join(root, 'packed.json'), 'utf8'));
+const pkg = (name) => join(root, 'node_modules', name, 'package.json');
+
+const missing = Object.keys(pins).filter((name) => !existsSync(pkg(name)));
+if (missing.length > 0) {
+  // `npm ci` removes the pinned packages: rebuild them, then this script runs again.
+  console.warn(`vendor/smaltdb: ${missing.join(', ')} not installed; run \`npm run deps\` (after every npm ci or npm install).`);
+  process.exit(0);
+}
+
+const CLIENT = `
+export * from 'smaltdb';
+export { importCSV, importJSON, exportCSV, exportJSON } from '@smaltdb/io/client';
+export { registerFile, registerCredentials } from '@smaltdb/external/client';
+`;
+const WORKER = `
+import { defineWorker } from 'smaltdb/worker-runtime';
+import { sqlLanguage } from 'smaltql';
+import io from '@smaltdb/io';
+import external from '@smaltdb/external';
+import parquet from '@smaltdb/parquet';
+defineWorker({ languages: [sqlLanguage], plugins: [io, external, parquet] });
+`;
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
+const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning', metafile: true, absWorkingDir: root };
+const [client, worker] = await Promise.all([
+  build({ ...common, stdin: { contents: CLIENT, resolveDir: root, sourcefile: 'smaltdb-client.js' }, outfile: join(out, 'smaltdb.js') }),
+  build({ ...common, stdin: { contents: WORKER, resolveDir: root, sourcefile: 'smaltdb-worker.js' }, outdir: out, entryNames: 'smaltdb-worker', splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
+]);
 
-if (!from) {
-  let pkgDir;
-  try {
-    pkgDir = dirname(createRequire(join(root, 'package.json')).resolve('smaltdb/package.json'));
-  } catch {
-    console.error('smaltdb is not installed: run `npm install`.');
-    process.exit(1);
+// Notices: every package from node_modules in either bundle, other than the smaltdb family (MIT, ours).
+const packages = new Set();
+for (const r of [client, worker]) {
+  for (const input of Object.keys(r.metafile.inputs)) {
+    const m = /node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(input);
+    if (m) packages.add(m[1]);
   }
-  const pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
-  const dist = join(pkgDir, 'dist');
-  // The worker loads its Parquet reader from chunks/ on first use; source maps are left out.
-  for (const f of ['smaltdb.js', 'smaltdb-worker.js']) cpSync(join(dist, f), join(out, f));
-  if (existsSync(join(dist, 'chunks'))) cpSync(join(dist, 'chunks'), join(out, 'chunks'), { recursive: true, filter: (p) => !p.endsWith('.map') });
-  writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'npm', version: pkg.version }, null, 2) + '\n');
-  console.log(`vendor/smaltdb: smaltdb@${pkg.version} from npm`);
-} else {
-  // A local checkout: bundle it the way smaltdb's own build does (the worker code-split so the
-  // Parquet reader is a lazily loaded chunk). Its optional dependencies resolve from the checkout.
-  const { build } = await import('esbuild');
-  const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning', nodePaths: [join(from, 'node_modules'), join(root, 'node_modules')] };
-  await Promise.all([
-    build({ ...common, entryPoints: [join(from, 'src/client/index.ts')], outfile: join(out, 'smaltdb.js') }),
-    build({ ...common, entryPoints: { 'smaltdb-worker': join(from, 'src/engine/worker.ts') }, outdir: out, splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
-  ]);
-  const pkg = JSON.parse(readFileSync(join(from, 'package.json'), 'utf8'));
-  let commit = null;
-  try {
-    const { execFileSync } = await import('node:child_process');
-    commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: from, encoding: 'utf8' }).trim();
-  } catch {}
-  writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'checkout', path: from, version: pkg.version, commit }, null, 2) + '\n');
-  console.log(`vendor/smaltdb: local checkout ${from}${commit ? ' @ ' + commit.slice(0, 12) : ''} (run \`npm run vendor\` to go back to the npm package)`);
 }
+const ours = new Set([...Object.keys(pins), 'smaltkit']);
+const notices = [];
+for (const name of [...packages].filter((n) => !ours.has(n)).sort()) {
+  const dir = join(root, 'node_modules', name);
+  const meta = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+  const licence = readdirSync(dir).find((f) => /^(licen[cs]e|copying|notice)/i.test(f));
+  notices.push(`${name}@${meta.version} (${meta.license ?? 'see below'})\n\n${licence ? readFileSync(join(dir, licence), 'utf8').trim() : '(no licence file in the package)'}`);
+}
+writeFileSync(join(out, 'THIRD_PARTY_NOTICES.txt'), `Third-party code bundled into vendor/smaltdb/ by scripts/vendor-smaltdb.mjs.\n\n${notices.join('\n\n' + '-'.repeat(78) + '\n\n')}\n`);
+
+const versions = Object.fromEntries(Object.keys(pins).map((name) => [name, { version: JSON.parse(readFileSync(pkg(name), 'utf8')).version, commit: pins[name].ref ?? null }]));
+const smaltdb = versions.smaltdb;
+writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'packed', version: smaltdb.version, commit: smaltdb.commit, packages: versions }, null, 2) + '\n');
+console.log(`vendor/smaltdb: smaltdb@${smaltdb.version} (${smaltdb.commit?.slice(0, 7)}) with ${Object.keys(pins).filter((n) => n !== 'smaltdb').join(', ')}${notices.length ? `; notices for ${notices.length} third-party packages` : ''}`);

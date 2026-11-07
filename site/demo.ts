@@ -156,7 +156,7 @@ async function start(): Promise<void> {
   }
   const v = engine.version?.version;
   if (v) {
-    $('#factEngine').textContent = `smaltdb ${v} from npm`;
+    $('#factEngine').textContent = `smaltdb ${v} with smaltql`;
     $('#footEngine').textContent = `smaltdb ${v}`;
   }
   try {
