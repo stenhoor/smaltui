@@ -28,13 +28,14 @@
         <span class="db-storage" id="dbStorage"></span>
         <span class="caret">▾</span>
       </button>
+      <span class="top-engine" id="topEngine" title="The engine and its languages">smaltdb · smaltql · smaltdf</span>
       <div class="topbar-actions">
-        <button class="ghost" id="btnNewQuery" title="New query tab (Ctrl+Shift+N)">＋<span class="btn-label"> Query</span></button>
-        <button class="ghost" id="btnNewTs" title="New TypeScript tab: smaltdf frames and expressions">ƒ<span class="btn-label"> TypeScript</span></button>
-        <button class="ghost" id="btnImport" title="Import or link data">⇣<span class="btn-label"> Import</span></button>
-        <button class="ghost" id="btnHistory" title="Query history">⟲<span class="btn-label"> History</span></button>
+        <button class="ghost" id="btnNewQuery" data-icon="query" title="New query tab (Ctrl+Shift+N)"><span class="btn-label">Query</span></button>
+        <button class="ghost" id="btnNewTs" data-icon="typescript" title="New TypeScript tab: smaltdf frames and expressions"><span class="btn-label">TypeScript</span></button>
+        <button class="ghost" id="btnImport" data-icon="import" title="Import or link data"><span class="btn-label">Import</span></button>
+        <button class="ghost" id="btnHistory" data-icon="history" title="Query history"><span class="btn-label">History</span></button>
         <div class="menu-wrap">
-          <button class="ghost" id="btnMore" aria-haspopup="true" title="More">⋯</button>
+          <button class="ghost" id="btnMore" data-icon="more" aria-haspopup="true" title="More" aria-label="More"></button>
           <div class="menu" id="moreMenu" hidden>
             <button data-act="export-env">Export database as environment (.json)</button>
             <button data-act="export-sql">Export database as SQL dump</button>
@@ -52,7 +53,7 @@
     <div class="workspace">
       <aside class="sidebar" id="sidebar">
         <div class="side-head">
-          <span>Objects</span>
+          <span class="pane-title">objects</span>
           <button class="icon" id="btnRefreshTree" title="Refresh">↻</button>
         </div>
         <input class="side-filter" id="treeFilter" type="search" placeholder="Filter objects…" aria-label="Filter objects">

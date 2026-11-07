@@ -6,6 +6,7 @@ import { Grid, formatValue, plainValue, exportRows, type Column, type ExportForm
 import { normalizeDataUrl, corsHint } from '../vendor/smaltkit/urls.js';
 import { splitLastExpression } from './ts.js';
 import type * as Df from '@smaltdb/df';
+import { icon, type IconName } from './icons.js';
 import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
 import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet, type DataFormat, type Manifest, type ReaderOptions } from './env.js';
 
@@ -75,7 +76,7 @@ function modal<T = unknown>({ title, body, buttons = [{ label: 'Close', value: n
   const dlg = $<HTMLDialogElement>('#modal');
   const inner = $<HTMLFormElement>('#modalInner');
   dlg.style.width = wide ? 'min(900px, calc(100vw - 32px))' : '';
-  inner.innerHTML = `<div class="modal-head"><span>${esc(title)}</span><button type="button" class="icon" data-x aria-label="Close">✕</button></div>
+  inner.innerHTML = `<div class="modal-head"><span>${esc(title)}</span><button type="button" class="icon" data-x aria-label="Close">${icon('close')}</button></div>
     <div class="modal-body">${body}</div>
     <div class="modal-foot">${buttons.map((b, i) => `<button type="${b.primary ? 'submit' : 'button'}" data-i="${i}" class="${b.primary ? 'primary' : ''} ${b.danger ? 'danger' : ''}">${esc(b.label)}</button>`).join('')}</div>`;
   const fields = (): FormFields => Object.fromEntries($$<HTMLInputElement>('[name]', inner).map((el) => [el.name, el]));
@@ -392,11 +393,11 @@ const db = (): Database => {
 };
 
 const OBJECT_KINDS: Record<string, { group: string; ico: string; kind: string }> = {
-  'BASE TABLE': { group: 'Tables', ico: '▦', kind: 'table' },
-  VIEW: { group: 'Views', ico: '◫', kind: 'view' },
-  'MATERIALIZED VIEW': { group: 'Materialized views', ico: '◧', kind: 'matview' },
-  EXTERNAL: { group: 'External tables', ico: '⇄', kind: 'external' },
-  'LOCAL TEMPORARY': { group: 'Temporary tables', ico: '▢', kind: 'temp' },
+  'BASE TABLE': { group: 'Tables', ico: icon('table'), kind: 'table' },
+  VIEW: { group: 'Views', ico: icon('view'), kind: 'view' },
+  'MATERIALIZED VIEW': { group: 'Materialized views', ico: icon('matview'), kind: 'matview' },
+  EXTERNAL: { group: 'External tables', ico: icon('external'), kind: 'external' },
+  'LOCAL TEMPORARY': { group: 'Temporary tables', ico: icon('temp'), kind: 'temp' },
 };
 
 // ================================================================ database lifecycle
@@ -684,7 +685,7 @@ function renderTree(): void {
     const g = 'Connections';
     const collapsed = collapsedGroups.has(g);
     html += `<div class="tree-group${collapsed ? ' collapsed' : ''}" data-group="${g}"><div class="tree-label"><span>${collapsed ? '▸' : '▾'}</span>${g} <span class="count">${app.schema.connections.length}</span></div><div class="tree-items">`;
-    for (const c of app.schema.connections) html += `<div class="tree-item" data-conn="${esc(c.connection_name)}" title="${esc(c.url)}"><span class="twisty"></span><span class="ico">⌁</span><span class="nm">${esc(c.connection_name)}</span><span class="meta">${c.credentials ? '🔑' : ''}</span></div>`;
+    for (const c of app.schema.connections) html += `<div class="tree-item" data-conn="${esc(c.connection_name)}" title="${esc(c.url)}"><span class="twisty"></span><span class="ico">${icon('connection')}</span><span class="nm">${esc(c.connection_name)}</span><span class="meta">${c.credentials ? '🔑' : ''}</span></div>`;
     html += '</div></div>';
   }
   if (!html) {
@@ -870,7 +871,7 @@ function renderTabs(): void {
   for (const t of app.tabs) {
     const el = h(`<div class="tab${t === app.active ? ' active' : ''}" role="tab" draggable="true" title="${esc(t.tooltip ?? t.title)}">
       <span class="tab-ico">${t.icon}</span><span class="tab-title">${esc(t.title)}</span>${t.busy ? '<span class="busy-dot"></span>' : ''}
-      <button class="tab-close" title="Close (Ctrl+W)" aria-label="Close tab">✕</button></div>`);
+      <button class="tab-close" title="Close (Ctrl+W)" aria-label="Close tab">${icon('close')}</button></div>`);
     el.onclick = (e) => {
       if (closest(e, '.tab-close')) closeTab(t);
       else activateTab(t);
@@ -893,7 +894,7 @@ function renderTabs(): void {
     };
     strip.appendChild(el);
   }
-  const plus = h(`<button class="icon" title="New query tab" style="align-self:center;margin-left:4px">＋</button>`);
+  const plus = h(`<button class="icon" title="New query tab" aria-label="New query tab" style="align-self:center;margin-left:4px">${icon('plus')}</button>`);
   plus.onclick = () => newQueryTab();
   strip.appendChild(plus);
 }
@@ -1000,7 +1001,7 @@ function tsTab(title: string, source: string): TsTab {
     el: blankPane(),
     kind: 'ts',
     title,
-    icon: 'ƒ',
+    icon: icon('typescript'),
     tooltip: `${title}: TypeScript with smaltdf (double-click to rename)`,
     source,
     editor: assignedInInit<Editor>(),
@@ -1237,7 +1238,7 @@ function queryTab(title: string, sql: string): QueryTab {
     el: blankPane(),
     kind: 'query',
     title,
-    icon: '⌨',
+    icon: icon('query'),
     sql,
     editor: assignedInInit<Editor>(),
     results: [],
@@ -1734,7 +1735,7 @@ function tableTab(name: string): TableTab {
     objectName: name,
     kindName: 'table',
     title: name,
-    icon: '▦',
+    icon: icon('table'),
     grid: assignedInInit<Grid>(),
     where: '',
     sort: null,
@@ -1746,7 +1747,7 @@ function tableTab(name: string): TableTab {
     view: 'data',
     init() {
       const cols = app.schema.tables.get(name);
-      this.icon = OBJECT_KINDS[cols?.type ?? '']?.ico ?? '▦';
+      this.icon = OBJECT_KINDS[cols?.type ?? '']?.ico ?? icon('table');
       this.kindName = cols?.kind ?? 'table';
       this.tooltip = `${name} (${(cols?.type ?? 'table').toLowerCase()})`;
       this.el.innerHTML = `
@@ -2044,7 +2045,7 @@ function importTab(): ImportTab {
     el: blankPane(),
     kind: 'import',
     title: 'Import',
-    icon: '⇣',
+    icon: icon('import'),
     previewGrid: assignedInInit<Grid>(),
     lsrc: 'url',
     init() {
@@ -2572,7 +2573,7 @@ function openHistoryTab(): void {
     el: blankPane(),
     kind: 'history',
     title: 'History',
-    icon: '⟲',
+    icon: icon('history'),
     init() {
       this.el.innerHTML = `<div class="toolbar"><input type="search" data-q placeholder="Search history…" style="flex:1"><label class="hint"><input type="checkbox" data-thisdb checked> this database only</label><button data-clear class="danger">Clear</button></div><div class="hist-list"></div>`;
       $('[data-q]', this.el).oninput = () => this.render();
@@ -2626,7 +2627,7 @@ function welcomeTab(): WelcomeTab {
     el: blankPane(),
     kind: 'welcome',
     title: 'Welcome',
-    icon: '★',
+    icon: icon('welcome'),
     init() {
       const v = app.engine?.version;
       this.el.innerHTML = `<div class="scroll-page"><div class="welcome">
@@ -2634,12 +2635,12 @@ function welcomeTab(): WelcomeTab {
         <p class="tagline">Small. Alternative. Query.</p>
         <p class="lead">A SQL console for <a href="https://smaltdb.dev" target="_blank" rel="noopener">smaltdb</a> that runs entirely in the browser. Databases live in this browser's private storage (OPFS) or in memory, and the page fetches only the files and URLs you import or link.</p>
         <div class="quick">
-          <button data-q="query"><b>⌨ New query</b><span>Write SQL with highlighting, completion and bind variables.</span></button>
-          <button data-q="ts"><b>ƒ New TypeScript tab</b><span>Query with smaltdf: frames and expressions in TypeScript, run in the engine.</span></button>
-          <button data-q="import"><b>⇣ Import a file</b><span>Load CSV, TSV, JSON, NDJSON or Parquet into a table.</span></button>
-          <button data-q="link"><b>⇄ Link a source</b><span>Query a file or URL in place as an external table.</span></button>
-          <button data-q="demo"><b>★ Open the demo</b><span>A sample environment with tables, a view and saved queries.</span></button>
-          <button data-q="db"><b>▤ Databases</b><span>Open, create or delete databases stored in this browser.</span></button>
+          <button data-q="query"><b>${icon('query')} New query</b><span>Write SQL with highlighting, completion and bind variables.</span></button>
+          <button data-q="ts"><b>${icon('typescript')} New TypeScript tab</b><span>Query with smaltdf: frames and expressions in TypeScript, run in the engine.</span></button>
+          <button data-q="import"><b>${icon('import')} Import a file</b><span>Load CSV, TSV, JSON, NDJSON or Parquet into a table.</span></button>
+          <button data-q="link"><b>${icon('external')} Link a source</b><span>Query a file or URL in place as an external table.</span></button>
+          <button data-q="demo"><b>${icon('welcome')} Open the demo</b><span>A sample environment with tables, a view and saved queries.</span></button>
+          <button data-q="db"><b>${icon('database')} Databases</b><span>Open, create or delete databases stored in this browser.</span></button>
         </div>
         <p class="lead" style="font-size:12px">Engine: ${esc(app.engine?.label ?? '—')}${v?.version ? ` · smaltdb ${esc(v.version)}` : ''}${v?.source === 'checkout' && v.commit ? ` @ <code>${esc(v.commit.slice(0, 10))}</code>` : ''}. Shortcuts: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> run script · <kbd>Ctrl</kbd>+<kbd>E</kbd> explain · <kbd>Ctrl</kbd>+<kbd>Space</kbd> complete.</p>
       </div></div>`;
@@ -2728,6 +2729,8 @@ function toggleTheme() {
 
 function wireChrome() {
   $('#dbPicker').onclick = () => dbPicker();
+  // Static buttons name their icon (data-icon); draw them.
+  $$<HTMLElement>('[data-icon]').forEach((el) => el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon as IconName)));
   $('#btnNewQuery').onclick = () => newQueryTab();
   $('#btnNewTs').onclick = () => newTsTab();
   $('#btnImport').onclick = () => openImportTab();

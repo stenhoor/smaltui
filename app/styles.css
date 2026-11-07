@@ -109,17 +109,20 @@ input:focus, select:focus, textarea.plain:focus { border-color: var(--primary); 
 .sidebar { display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--border); min-height: 0; min-width: 0; }
 .splitter { cursor: col-resize; background: transparent; }
 .splitter:hover, .splitter.drag { background: var(--primary-soft); }
-.side-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 4px; font: 11px var(--brand); letter-spacing: 0.02em; color: var(--muted); }
+.side-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 4px; }
+/* Pane titles and section labels as in smaltbi's designer: Martian Mono, lowercase. */
+.pane-title { font: 600 11px var(--brand); text-transform: lowercase; letter-spacing: 0.02em; color: var(--text-2); }
 .side-filter { margin: 4px 8px 6px; }
 .tree { flex: 1; overflow: auto; padding: 0 4px 8px; min-height: 0; }
-.tree-group > .tree-label { font: 11px var(--brand); letter-spacing: 0.02em; color: var(--muted); padding: 8px 6px 3px; display: flex; gap: 6px; cursor: pointer; user-select: none; }
+.tree-group > .tree-label { font: 600 10.5px var(--brand); text-transform: lowercase; letter-spacing: 0.02em; color: var(--muted); padding: 8px 6px 3px; display: flex; gap: 6px; cursor: pointer; user-select: none; }
 .tree-group > .tree-label .count { color: var(--faint); font-weight: 500; }
 .tree-group.collapsed > .tree-items { display: none; }
 .tree-item { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 5px; cursor: pointer; white-space: nowrap; user-select: none; }
 .tree-item:hover { background: var(--panel-2); }
 .tree-item.active { background: var(--primary-soft); }
 .tree-item .twisty { width: 12px; color: var(--faint); font-size: 10px; flex: none; text-align: center; }
-.tree-item .ico { width: 16px; flex: none; text-align: center; font-size: 12px; }
+.tree-item .ico { width: 16px; flex: none; display: inline-flex; color: var(--muted); }
+.tree-item .ico .i { width: 14px; height: 14px; }
 .tree-item .nm { overflow: hidden; text-overflow: ellipsis; }
 .tree-item .meta { margin-left: auto; color: var(--faint); font-size: 11px; font-family: var(--mono); }
 .tree-cols { padding-left: 22px; }
@@ -142,7 +145,9 @@ input:focus, select:focus, textarea.plain:focus { border-color: var(--primary); 
 .tab { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px; border: 1px solid transparent; border-bottom: none; border-radius: 7px 7px 0 0; background: transparent; cursor: pointer; white-space: nowrap; max-width: 220px; color: var(--muted); user-select: none; position: relative; top: 1px; }
 .tab:hover { color: var(--text); background: var(--panel-2); }
 .tab.active { background: var(--panel); border-color: var(--border); color: var(--text); }
-.tab .tab-ico { font-size: 11px; }
+.tab .tab-ico { display: inline-flex; color: var(--muted); }
+.tab.active .tab-ico { color: var(--text-2); }
+.tab .tab-close .i { width: 10px; height: 10px; }
 .tab .tab-title { overflow: hidden; text-overflow: ellipsis; }
 .tab .tab-dirty { color: var(--primary); }
 .tab .tab-close { border: none; background: none; padding: 0 4px; color: var(--faint); border-radius: 4px; line-height: 1.2; }
@@ -340,7 +345,7 @@ dialog::backdrop { background: rgba(10, 14, 22, 0.45); }
 .welcome .lead { color: var(--muted); margin: 0 0 18px; line-height: 1.6; }
 .quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 22px; }
 .quick button { text-align: left; padding: 12px; border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
-.quick button b { font-size: 13px; }
+.quick button b { font-size: 13px; display: inline-flex; align-items: center; gap: 7px; }
 .quick button span { color: var(--muted); font-size: 12px; line-height: 1.45; }
 
 /* ------------------------------------------------------------- narrow screens */
@@ -359,3 +364,14 @@ dialog::backdrop { background: rgba(10, 14, 22, 0.45); }
 }
 .about-badges { margin: 0 0 12px; line-height: 0; }
 .about-badges a { display: inline-flex; border-radius: 10px; }
+/* Icons (app/icons.ts): the smalt-brand Chevron style. The body follows the text colour; the chip is the user-tool
+   layer's colour, as in smaltbi. */
+.i { width: 16px; height: 16px; flex: none; fill: currentColor; vertical-align: -3px; }
+.i .k { fill: var(--layer-tool); }
+button .i { pointer-events: none; }
+.topbar-actions button.ghost { display: inline-flex; align-items: center; gap: 6px; }
+.modal-head .icon .i, button.icon .i { width: 12px; height: 12px; vertical-align: -1px; }
+/* The engine and its language, as smaltbi's designer shows them. */
+.top-engine { margin-left: auto; font: 11px var(--brand); color: var(--text-3); white-space: nowrap; }
+.top-engine + .topbar-actions { margin-left: 8px; }
+@media (max-width: 760px) { .top-engine { display: none; } .top-engine + .topbar-actions { margin-left: auto; } }
