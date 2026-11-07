@@ -1,9 +1,3 @@
 /* smaltui on the family docs theme (brand/themes/vitepress/smaltdb.css, copied from stenhoor/smalt-brand). */
 
 /* The suffix colour, the badges and the stage badge come from the shared theme (smaltdb.css, stage.ts). */
-
-/* The live console. */
-.su-demo { margin: 8px 0 12px; border: 1px solid var(--vp-c-divider); border-radius: 12px; overflow: hidden; background: var(--vp-c-bg-alt); }
-.su-demo iframe { display: block; width: 100%; height: 640px; border: 0; }
-@media (max-width: 720px) { .su-demo iframe { height: 760px; } }
-.su-demo-links { font-size: 14px; color: var(--vp-c-text-2); }

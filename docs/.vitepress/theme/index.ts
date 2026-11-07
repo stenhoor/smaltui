@@ -9,7 +9,7 @@ export default {
   Layout: withSmaltworks(DefaultTheme, 'wip', '/badges/'),
   enhanceApp() {
     if (typeof window === 'undefined') return;
-    // The embedded console (console.html, and the workbench) follow the site's light / dark switch through
+    // The workbench (the Demo) and the console page follow the site's light / dark switch through
     // smaltui's own setting (smaltui.theme); the console listens for its storage event.
     const sync = () => {
       const mode = JSON.stringify(document.documentElement.classList.contains('dark') ? 'dark' : 'light');
