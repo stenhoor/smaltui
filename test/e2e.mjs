@@ -288,6 +288,8 @@ try {
       if (await page.locator('iframe').count()) throw new Error('home: embeds a demo');
       const demo = await page.locator('.VPNavBarMenu a').first().evaluate((a) => [a.textContent.trim(), a.getAttribute('href')]);
       if (demo[0] !== 'Demo' || !/workbench\/\?env=envs\/demo\/env\.json$/.test(demo[1] ?? '')) throw new Error('home: first nav item is not Demo -> workbench: ' + JSON.stringify(demo));
+      const heroActions = await page.locator('.VPHero .actions a').evaluateAll((as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href')]));
+      if (JSON.stringify(heroActions) !== JSON.stringify([['Getting started', '/smaltui/guide/']])) throw new Error('home: the hero should have one button, Getting started: ' + JSON.stringify(heroActions));
       // The live console (embedded in the home page) runs its first example.
       await page.goto(siteBase + 'console.html');
       await page.waitForFunction(() => /rows? in|Could not|could not/.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 20000 });
