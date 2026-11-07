@@ -3,7 +3,7 @@
 //   node test/smoke.mjs https://stenhoor.github.io/smaltui/      (the Pages workflow runs this after each deploy)
 //
 // A green deploy does not prove the site works (smaltui#7: every file returned 200, yet the demo failed), so this
-// checks what a visitor sees: the landing console runs its first query, and the workbench builds the demo
+// checks what a visitor sees: the home page renders, the live console runs its first query, and the workbench builds the demo
 // environment without an error. Retries a few times, since a fresh deploy can take a minute to reach the CDN.
 import { createRequire } from 'node:module';
 
@@ -35,13 +35,24 @@ async function check(browser) {
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
   try {
-    // Landing page: the live console loads the demo and runs its first example.
+    // Home page: the site on the smaltworks docs theme, with its logo, stage badge and footer badges.
     await page.goto(base, { waitUntil: 'load' });
+    await page.waitForSelector('.VPHero .name', { timeout: 45000 });
+    const home = await page.evaluate(() => ({
+      name: document.querySelector('.VPHero .name')?.textContent,
+      logos: [...document.querySelectorAll('.VPNavBarTitle img')].filter((i) => i.offsetParent !== null).length,
+      broken: [...document.querySelectorAll('img')].filter((i) => i.offsetParent !== null && !(i.complete && i.naturalWidth > 0)).map((i) => i.src),
+    }));
+    if (home.name !== 'smaltui') throw new Error(`home page: hero is "${home.name}"`);
+    if (home.logos !== 1) throw new Error(`home page: ${home.logos} header logos visible`);
+    if (home.broken.length) throw new Error(`home page: images not loaded: ${home.broken.join(', ')}`);
+
+    // The live console (embedded in the home page) loads the demo and runs its first example.
+    await page.goto(base + 'console.html', { waitUntil: 'load' });
     await page.waitForFunction(() => /rows? in|could not/i.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 45000 });
     const landing = (await page.locator('#consoleStatus').textContent()).trim();
-    if (!/rows? in/.test(landing)) throw new Error(`landing console: ${landing}`);
-    if (!(await page.locator('#gridHost tbody tr[data-row]').count())) throw new Error('landing console: no rows shown');
-    await checkBrand(page, 'landing');
+    if (!/rows? in/.test(landing)) throw new Error(`live console: ${landing}`);
+    if (!(await page.locator('#gridHost tbody tr[data-row]').count())) throw new Error('live console: no rows shown');
 
     // Workbench: the demo environment builds without an error popup.
     await page.goto(base + 'workbench/?env=envs/demo/env.json', { waitUntil: 'load' });
@@ -62,7 +73,7 @@ async function check(browser) {
     if (nbErrs.length) throw new Error(`demo notebook: ${nbErrs.join(' | ')}`);
     const cells = await page.locator('.pane.active .nb-cell').count();
     if (pageErrors.length) throw new Error(`page errors: ${pageErrors.join(' | ')}`);
-    return `landing: "${landing}"; workbench: demo loaded; notebook: ${cells} cells ran; engine: ${engine.trim()}`;
+    return `home: ok; console: "${landing}"; workbench: demo loaded; notebook: ${cells} cells ran; engine: ${engine.trim()}`;
   } finally {
     await ctx.close();
   }

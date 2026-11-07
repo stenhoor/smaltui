@@ -22,7 +22,7 @@ the engine runs in a Web Worker in each visitor's browser, and databases are sto
 Serve the folder from any static host and you have a live environment. Add `?env=…` and the page builds a ready-made
 database (schema, data, linked sources, saved queries) when it opens.
 
-**Live demo:** <https://stenhoor.github.io/smaltui/>. The landing page has a SQL console over the demo database. The
+**Live demo:** <https://stenhoor.github.io/smaltui/>. The site has a guide and a live SQL console over the demo database. The
 full workbench is at [`/workbench/`](https://stenhoor.github.io/smaltui/workbench/?env=envs/demo/env.json).
 
 ## Features
@@ -160,23 +160,30 @@ API. When smaltdb 0.9 and its packages are published (as `@smaltworks/…`), the
 
 ## Deploy
 
-`npm ci && npm run build` assembles the site in `dist/`. Any static host works. The build stamps every CSS and JS reference with a
-version (`styles.css?v=<hash>`), so after a deploy browsers fetch the new files instead of reusing cached ones. `npm run preview` builds it and
-serves it locally.
+`npm ci && npm run deps && npm run build` assembles the site in `dist/`, for the `/smaltui/` path (`DOCS_BASE`
+changes it). Any static host works. `npm run preview` builds it and serves it at `http://localhost:8080/smaltui/`.
 
 ```
-dist/index.html, site.css, demo.js   landing page with a live SQL console (from site/)
-dist/workbench/                      the workbench: index.html, app/, vendor/, envs/
+dist/                                     the product site: docs/, built with VitePress on the smaltworks docs theme
+dist/console.html, console.css, demo.js   the live SQL console (from site/), embedded in the home page
+dist/workbench/                           the workbench: index.html, app/, vendor/, envs/
 ```
 
-The landing console runs in-browser on the demo environment, using the workbench's own engine loader, editor, grid and
-environment modules. "Open in workbench" links to `workbench/?env=…&sql=…`. The `sql` parameter opens a query tab
-and runs it. Links to the site root that carry workbench parameters (`?env=`, `?db=`, `?engine=`, `?sql=`) are
-forwarded to `/workbench/`.
+The site is built the way smaltworks.dev and smaltbi's site are: VitePress with smalt-brand's docs theme
+(`brand/themes/vitepress/`, synced verbatim), the work-in-progress badge under the hero, and the smaltworks badges in
+the footer. `npm run docs:dev` serves it with live reload (without the workbench beside it).
 
-- **GitHub Pages:** `.github/workflows/pages.yml` deploys on every push to `main`. (Enable Pages with "GitHub
-  Actions" as the source.) Run it manually with `smaltdb_version` set to deploy another npm version without
-  changing the lockfile. GitHub Pages cannot send COOP/COEP headers. smaltui works there, but without parallel readers.
+The build stamps every CSS and JS reference of the console and the workbench with a version (`styles.css?v=<hash>`), so
+after a deploy browsers fetch the new files instead of reusing cached ones; VitePress hashes its own assets.
+
+The console runs in-browser on the demo environment, using the workbench's own engine loader, editor, grid and
+environment modules, and follows the site's light / dark switch. "Open in workbench" links to
+`workbench/?env=…&sql=…`. The `sql` parameter opens a query tab and runs it. Links to the site root that carry
+workbench parameters (`?env=`, `?db=`, `?sql=`, `?nb=`) are forwarded to `/workbench/`.
+
+- **GitHub Pages:** `.github/workflows/pages.yml` deploys on every push to `main`, then runs `test/smoke.mjs`
+  against the live site. (Enable Pages with "GitHub Actions" as the source.) GitHub Pages cannot send COOP/COEP
+  headers. smaltui works there, but without parallel readers.
 - **Netlify / Cloudflare Pages:** `_headers` adds the isolation headers.
 
 ## Environments
@@ -238,7 +245,8 @@ the Chevron mark, the Kiln palette, Geist / Geist Mono / Martian Mono, and the t
 
 ```
 index.html            workbench page shell (served at /workbench/ in the built site)
-site/                 landing page with the live console (served at / in the built site)
+docs/                 the product site (VitePress on the smaltworks docs theme): home page and guide
+site/                 the live console page (console.html, demo.ts), embedded in the home page
 app/main.ts           application: tabs, explorer, query runner, table viewer, import, history
 app/editor.ts         SQL editor (highlight overlay, completion, shortcuts)
 app/grid.ts           virtualized data grid
@@ -248,7 +256,7 @@ app/notebook.ts       notebooks: SQL (smaltql) and dataframe (smaltdf) cells
 app/env.ts            environment manifests: types, load, export, SQL dump
 app/store.ts          localStorage prefs/history, IndexedDB file handles
 app/globals.d.ts      File System Access API declarations missing from TypeScript's DOM library
-site/demo.ts          the landing page's live console
+site/demo.ts          the live console
 (app|site)/*.js       compiled output (npm run compile; not committed)
 vendor/smaltdb/       engine: smaltdb, smaltql and plugins, bundled by npm run deps (not committed)
 vendor/smaltdf/       smaltdf for notebooks, bundled by npm run deps (not committed)

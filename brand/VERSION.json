@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/stenhoor/smalt-brand",
-  "commit": "2192ec33705a4aa06a599d0069656496fbbf5c39",
+  "commit": "c4f4bd382346d6c43f27a549f5cd8eef8219618b",
   "files": [
     "tokens/tokens.css",
     "logos/smaltui/app-icon.svg",
@@ -21,6 +21,8 @@
     "badges/work-in-progress.svg",
     "badges/work-in-progress-on-dark.svg",
     "badges/a-smaltworks-project.svg",
-    "badges/a-smaltworks-project-on-dark.svg"
+    "badges/a-smaltworks-project-on-dark.svg",
+    "themes/vitepress/smaltdb.css",
+    "themes/vitepress/shiki.ts"
   ]
 }

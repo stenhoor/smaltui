@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-smaltui is a static, in-browser SQL workbench for [smaltdb](https://github.com/stenhoor/smaltdb), plus a landing page
+smaltui is a static, in-browser SQL workbench for [smaltdb](https://github.com/stenhoor/smaltdb), plus a product site
 with a live console. Several Claude Code sessions work on the smalt repos in parallel and cannot see each other: this
 file is the shared starting point. smaltdb has the matching file (stenhoor/smaltdb#30); keep the working rules the same.
 
@@ -14,7 +14,8 @@ npm run dev            # serve and recompile on change
 npm run typecheck      # tsc --noEmit, strict (CI runs it)
 npm run serve          # compile once, then the workbench, http://localhost:8080 (COOP/COEP on; --no-isolation to drop it,
                        # --gzip to compress like GitHub Pages)
-npm run preview        # build, then serve dist/ (landing page at /, workbench at /workbench/), as deployed
+npm run preview        # build, then serve it at /smaltui/ (site, console.html, workbench/), as deployed
+npm run docs:dev       # the site (docs/) with live reload
 npm run build          # assemble the site in dist/
 npm test               # test/e2e.mjs in headless Chromium (needs Playwright, see below)
 node test/smoke.mjs <url>   # check a deployed site; the Pages workflow runs it after each deploy
@@ -30,7 +31,8 @@ npm install --no-save playwright && npx playwright install --with-deps chromium
 
 ## Repo map
 
-- `app/` is the workbench, `site/` the landing page, `envs/` the environments (demo data and manifests).
+- `app/` is the workbench, `docs/` the product site (VitePress on smalt-brand's docs theme, like smaltworks.dev and
+  smaltbi), `site/` the live console it embeds, `envs/` the environments (demo data and manifests).
 - Sources are TypeScript (strict): edit `app/*.ts` and `site/*.ts`. `scripts/compile.mjs` writes a `.js` beside each one
   (gitignored), which the pages load. Keep imports as `./name.js` (they resolve to the `.ts` when type checking).
 - `scripts/` holds the vendor, build and serve scripts. `test/e2e.mjs` is the test suite (`npm test`); it also runs

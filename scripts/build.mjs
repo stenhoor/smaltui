@@ -1,12 +1,16 @@
-// Assembles the static site in dist/ (what GitHub Pages serves):
+// Assembles the static site in dist/ (what GitHub Pages serves, at /smaltui/):
 //
-//   dist/index.html, site.css, demo.js   landing page with a live console (from site/)
-//   dist/workbench/                      the full workbench: index.html, app/, vendor/, envs/, brand/
+//   dist/                                       the product site: docs/, built with VitePress on the smaltworks docs
+//                                               theme (brand/themes/vitepress), as smaltworks.dev and smaltbi are
+//   dist/console.html, console.css, demo.js     the live SQL console (from site/), embedded in the home page
+//   dist/workbench/                             the full workbench: index.html, app/, vendor/, envs/, brand/
 //
+// The site's base is /smaltui/ (DOCS_BASE overrides it), so serve the folder at that path: `npm run preview` does.
 // It compiles the TypeScript (scripts/compile.mjs), gathers files (the .js output, not the .ts sources), then stamps every local CSS and JS reference with a build version
 // (`styles.css?v=<hash>`, `from './sql.js?v=<hash>'`). GitHub Pages lets browsers reuse files for up to 10 minutes,
 // so without it a new page can run with the previous deploy's stylesheet or modules (seen after the brand deploy:
 // new HTML with old CSS showed the light and dark logos at once). Preview it with `npm run preview`.
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -21,12 +25,20 @@ if (!existsSync(join(root, 'vendor/smaltdb/smaltdb.js'))) {
 }
 await compile({ quiet: true });
 rmSync(out, { recursive: true, force: true });
+// VitePress first: it empties its output folder. Its assets are content-hashed already.
+try {
+  execFileSync(process.execPath, [join(root, 'node_modules/vitepress/bin/vitepress.js'), 'build', 'docs', '--outDir', out], { cwd: root, stdio: 'pipe' });
+} catch (e) {
+  // VitePress reports its errors (dead links, bad markdown) on stdout.
+  console.error(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || e.message);
+  process.exit(1);
+}
 // TypeScript sources stay out of the site; the .js and its source map (with the sources embedded) are enough.
 const noTs = (src) => !/\.ts$/.test(src);
 mkdirSync(join(out, 'workbench'), { recursive: true });
 for (const f of ['index.html', 'app', 'vendor', 'envs', 'brand']) cpSync(join(root, f), join(out, 'workbench', f), { recursive: true, filter: noTs });
 cpSync(join(root, 'site'), out, { recursive: true, filter: noTs });
-// The landing page imports the workbench modules as ../app/ and ../vendor/ in the repo; in the site they live under ./workbench/.
+// The console imports the workbench modules as ../app/ and ../vendor/ in the repo; in the site they live under ./workbench/.
 writeFileSync(join(out, 'demo.js'), readFileSync(join(out, 'demo.js'), 'utf8').replace(/(["'])\.\.\/(app|vendor)\//g, '$1./workbench/$2/'));
 for (const f of ['_headers', 'LICENSE']) if (existsSync(join(root, f))) cpSync(join(root, f), join(out, f));
 writeFileSync(join(out, '.nojekyll'), '');
@@ -46,8 +58,10 @@ const stamp = (url) => {
   return `${url}?v=${version}`;
 };
 for (const f of all) {
-  // The smaltdb engine in vendor/ is loaded by computed URL and changes only with its npm version.
-  if (relative(out, f).split(/[\\/]/).includes('vendor')) continue;
+  // The smaltdb engine in vendor/ is loaded by computed URL and changes only with its pins; VitePress's assets/ are
+  // content-hashed, and its pages refer to them by absolute URL.
+  const parts = relative(out, f).split(/[\\/]/);
+  if (parts.includes('vendor') || parts[0] === 'assets') continue;
   if (f.endsWith('.html')) {
     const html = readFileSync(f, 'utf8').replace(/(<(?:link|script)\b[^>]*?\s(?:href|src)=")([^"]+\.(?:css|js))"/g, (m, pre, url) => (local(url) ? `${pre}${stamp(url)}"` : m));
     writeFileSync(f, html);
@@ -57,4 +71,4 @@ for (const f of all) {
   }
 }
 writeFileSync(join(out, 'workbench', 'BUILD.json'), JSON.stringify({ version, builtAt: new Date().toISOString() }, null, 2) + '\n');
-console.log(`site written to ${out}  (landing: /, workbench: /workbench/; build ${version}, ${stamped} asset references versioned)`);
+console.log(`site written to ${out}  (site: /, console: /console.html, workbench: /workbench/; build ${version}, ${stamped} asset references versioned)`);

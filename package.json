@@ -14,14 +14,16 @@
     "brand:sync": "node scripts/sync-brand.mjs",
     "build": "node scripts/build.mjs",
     "serve": "node scripts/compile.mjs && node scripts/serve.mjs",
-    "preview": "node scripts/build.mjs && node scripts/serve.mjs dist",
+    "preview": "node scripts/build.mjs .cache/preview/smaltui && node scripts/serve.mjs .cache/preview",
     "test": "node scripts/compile.mjs && node test/e2e.mjs",
-    "deps": "node scripts/fetch-packed.mjs && node scripts/vendor-smaltdb.mjs && node scripts/compile.mjs"
+    "deps": "node scripts/fetch-packed.mjs && node scripts/vendor-smaltdb.mjs && node scripts/compile.mjs",
+    "docs:dev": "vitepress dev docs"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
     "hyparquet-compressors": "^1.1.3",
-    "typescript": "~5.9"
+    "typescript": "~5.9",
+    "vitepress": "^1.6.4"
   },
   "dependencies": {
     "smaltkit": "github:stenhoor/smaltkit#365f0390bd3b8d1ad3e93967c87cd8a2597532a7"

@@ -286,7 +286,7 @@ try {
     if (r < 1) throw new Error('lost data');
   });
 
-  await step('built site served like GitHub Pages (/smaltui/ subpath, gzip, no isolation): landing console and workbench demo load', async () => {
+  await step('built site served like GitHub Pages (/smaltui/ subpath, gzip, no isolation): home page, console, guide and workbench demo load', async () => {
     // Pages compresses responses: a HEAD reports the gzipped size, so code that takes a file's size from it
     // reads the wrong bytes (smaltui#7). Serve the build the same way, under the same subpath.
     const out = join(root, '.cache', 'site-e2e');
@@ -296,24 +296,37 @@ try {
     await new Promise((r) => site.stdout.once('data', r));
     try {
       const siteBase = `http://localhost:${sitePort}/smaltui/`;
+      // The home page: VitePress on the smaltworks docs theme, as smaltworks.dev and smaltbi.
       await page.goto(siteBase);
+      await page.waitForSelector('.VPHero .name', { timeout: 20000 });
+      const home = await page.evaluate(async () => ({
+        name: document.querySelector('.VPHero .name')?.textContent,
+        text: document.querySelector('.VPHero .text')?.textContent,
+        imgs: [...document.querySelectorAll('img')].filter((i) => i.offsetParent !== null).map((i) => [i.src.split('/').pop(), i.complete && i.naturalWidth > 0]),
+        icon: (await fetch(document.querySelector('link[rel="icon"]').href)).ok,
+      }));
+      const shown = Object.fromEntries(home.imgs);
+      if (home.name !== 'smaltui' || home.text !== 'Small. Alternative. Query.' || !home.icon) throw new Error('home: ' + JSON.stringify(home));
+      for (const img of ['lockup.svg', 'work-in-progress.svg', 'powered-by-smaltdb.svg', 'powered-by-smaltql.svg', 'a-smaltworks-project.svg']) {
+        if (!shown[img]) throw new Error(`home: ${img} not shown: ${JSON.stringify(home.imgs)}`);
+      }
+      // Light and dark versions are switched by CSS: one of each badge shows.
+      if (home.imgs.filter(([n]) => /-on-dark\.svg$/.test(n)).length) throw new Error('home (light) shows dark badges: ' + JSON.stringify(home.imgs));
+      if (!(await page.locator('#consoleFrame').count())) throw new Error('home: no live console');
+      // The live console (embedded in the home page) runs its first example.
+      await page.goto(siteBase + 'console.html');
       await page.waitForFunction(() => /rows? in|Could not|could not/.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 20000 });
       const landing = await page.locator('#consoleStatus').textContent();
-      if (!/rows? in/.test(landing)) throw new Error('landing console: ' + landing);
-      // Landing branding: lockup, "Powered by smaltdb" badge, favicon and tagline.
-      const brand = await page.evaluate(async () => ({
-        imgs: [...document.querySelectorAll('img')].filter((i) => i.offsetParent !== null).map((i) => [i.src.split('/').pop(), i.naturalWidth > 0]),
-        icon: (await fetch(document.querySelector('link[rel="icon"]').href)).ok,
-        eyebrow: document.querySelector('.eyebrow').textContent,
-      }));
-      const shown = Object.fromEntries(brand.imgs);
-      if (!shown['lockup.svg'] || !shown['powered-by-smaltdb.svg'] || !brand.icon || brand.eyebrow !== 'Small. Alternative. Query.') throw new Error('landing brand: ' + JSON.stringify(brand));
-      // Exactly one header logo shows (the light, dark and compact versions are switched by CSS).
-      const headerLogos = brand.imgs.filter(([n]) => /lockup|chevron-mark/.test(n)).length;
-      if (headerLogos !== 1) throw new Error('landing shows ' + headerLogos + ' header logos: ' + JSON.stringify(brand.imgs));
+      if (!/rows? in/.test(landing)) throw new Error('console: ' + landing);
+      // A guide page (clean URLs, as Pages serves them).
+      await page.goto(siteBase + 'guide/notebooks');
+      const h1 = await page.locator('.vp-doc h1').textContent({ timeout: 10000 }).catch(() => null);
+      if (!/^\s*Notebooks\b/.test(h1 ?? '')) throw new Error(`guide/notebooks did not render: ${JSON.stringify(h1)}`);
+      await page.goto(siteBase + 'console.html');
+      await page.waitForFunction(() => /rows? in/.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 20000 });
       // Every local CSS/JS reference is versioned, so a deploy never mixes new pages with cached old assets.
       const { readFileSync } = await import('node:fs');
-      for (const f of ['smaltui/index.html', 'smaltui/workbench/index.html']) {
+      for (const f of ['smaltui/console.html', 'smaltui/workbench/index.html']) {
         const refs = [...readFileSync(join(out, f), 'utf8').matchAll(/<(?:link|script)\b[^>]*?\s(?:href|src)="([^"]+\.(?:css|js)[^"]*)"/g)].map((m) => m[1]).filter((u) => !/^https?:/.test(u));
         const bare = refs.filter((u) => !/\?v=[0-9a-f]{12}$/.test(u));
         if (!refs.length || bare.length) throw new Error(`${f}: unversioned ${JSON.stringify(bare)}`);

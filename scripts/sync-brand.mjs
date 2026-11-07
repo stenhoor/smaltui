@@ -36,6 +36,9 @@ const FILES = [
   'badges/work-in-progress-on-dark.svg',
   'badges/a-smaltworks-project.svg',
   'badges/a-smaltworks-project-on-dark.svg',
+  // The family docs theme (smaltdb.dev, smaltworks.dev, smaltbi): the site in docs/ is built on it.
+  'themes/vitepress/smaltdb.css',
+  'themes/vitepress/shiki.ts',
 ];
 
 const args = process.argv.slice(2);
