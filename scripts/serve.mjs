@@ -32,6 +32,14 @@ createServer((req, res) => {
   let path = normalize(join(root, decodeURIComponent(url.pathname)));
   if (!path.startsWith(root)) return void res.writeHead(403).end();
   try {
+    // Clean URLs, as GitHub Pages serves them (the VitePress site links /guide/notebooks for notebooks.html).
+    if (!extname(path)) {
+      try {
+        statSync(path);
+      } catch {
+        path += '.html';
+      }
+    }
     if (statSync(path).isDirectory()) path = join(path, 'index.html');
     const st = statSync(path);
     const etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;

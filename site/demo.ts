@@ -100,15 +100,16 @@ function status(text: string, err = false): void {
   statusEl.classList.toggle('err', err);
 }
 
-// ------------------------------------------------------------------ theme toggle
-$('#themeBtn').onclick = () => {
-  const root = document.documentElement;
-  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-  root.dataset.theme = dark ? 'light' : 'dark';
+// ------------------------------------------------------------------ theme
+// The site (docs/.vitepress/theme) writes its light / dark choice to smaltui.theme; follow it as it changes.
+window.addEventListener('storage', (e) => {
+  if (e.key !== 'smaltui.theme') return;
   try {
-    localStorage.setItem('smaltui.theme', JSON.stringify(root.dataset.theme));
+    const t = JSON.parse(e.newValue ?? 'null');
+    if (t) document.documentElement.dataset.theme = t;
+    else delete document.documentElement.dataset.theme;
   } catch {}
-};
+});
 
 // ------------------------------------------------------------------ UI
 const schema: EditorSchema = { names: new Set(), tables: new Map() };
@@ -156,8 +157,7 @@ async function start(): Promise<void> {
   }
   const v = engine.version?.version;
   if (v) {
-    $('#factEngine').textContent = `smaltdb ${v} with smaltql`;
-    $('#footEngine').textContent = `smaltdb ${v}`;
+    $('#openInWb').title = `Open this query in the full workbench (smaltdb ${v} with smaltql)`;
   }
   try {
     db = await engine.open('smaltui-landing', { storage: 'memory' });

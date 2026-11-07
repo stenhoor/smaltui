@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>smaltui · live console</title>
+  <meta name="description" content="The smaltui live console: SQL on a demo shop, run by smaltdb and smaltql in your browser.">
+  <link rel="icon" type="image/svg+xml" href="workbench/brand/logos/smaltui/favicon-32.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&family=Martian+Mono:wght@400;600&display=swap">
+  <script>
+    try { const t = JSON.parse(localStorage.getItem('smaltui.theme')); if (t) document.documentElement.dataset.theme = t; } catch {}
+  </script>
+  <link rel="stylesheet" href="workbench/brand/tokens/tokens.css">
+  <link rel="stylesheet" href="workbench/app/styles.css">
+  <link rel="stylesheet" href="console.css">
+</head>
+<body class="console-page">
+  <!-- The live console, embedded in the home page (docs/index.md) and usable on its own. It follows the site's light /
+       dark setting through smaltui.theme. -->
+  <main>
+      <div class="console">
+        <aside class="examples" aria-label="Example queries">
+          <div class="examples-title">Examples</div>
+          <div id="examples"></div>
+          <div class="schema-title">Tables</div>
+          <div id="schemaList" class="schema-list"></div>
+        </aside>
+        <div class="console-main">
+          <div class="console-bar">
+            <button class="primary" id="runBtn" disabled title="Run the statement at the cursor (Ctrl+Enter)">▶ Run</button>
+            <span class="console-status" id="consoleStatus" role="status">Starting smaltdb…</span>
+            <a class="btn" id="openInWb" target="_top" href="workbench/?env=envs/demo/env.json" title="Open this query in the full workbench">Open in workbench ↗</a>
+          </div>
+          <div class="console-editor" id="editorHost"></div>
+          <div class="console-result">
+            <div class="grid-host" id="gridHost"></div>
+          </div>
+        </div>
+      </div>
+  </main>
+  <script type="module" src="demo.js"></script>
+</body>
+</html>
