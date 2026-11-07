@@ -13,6 +13,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      - run: npm run deps   # build the smaltdb 0.9 packages pinned in packed.json (not on npm yet) and vendor them
       - run: npm run typecheck
       - name: brand/ matches stenhoor/smalt-brand at its pinned commit
         run: node scripts/sync-brand.mjs --check

@@ -65,7 +65,11 @@ full workbench is at [`/workbench/`](https://stenhoor.github.io/smaltui/workbenc
 ## Run it locally
 
 ```bash
-npm install          # copies smaltdb and smaltkit into vendor/ and compiles the TypeScript
+npm install          # copies smaltkit into vendor/ and compiles the TypeScript
+```
+
+```bash
+npm run deps         # builds smaltdb 0.9, smaltql and the plugins pinned in packed.json, bundles vendor/smaltdb/
 ```
 
 ```bash
@@ -97,36 +101,44 @@ Once smaltkit is published, the dependency becomes a version range (`"smaltkit":
 
 ## The smaltdb engine
 
-smaltui uses the [`smaltdb` npm package](https://www.npmjs.com/package/smaltdb). Its version is pinned in
-`package.json` / `package-lock.json`. On `npm install`, a postinstall step (`scripts/vendor-smaltdb.mjs`) copies the
-package's browser build into `vendor/smaltdb/`: `smaltdb.js` (the client), `smaltdb-worker.js` (the engine) and
-`chunks/` (the Parquet reader, which the worker loads on first use). `vendor/` is generated, not committed. The page
-loads the engine from there, from the same origin, so it works offline and under cross-origin isolation.
+smaltdb 0.9 is an engine with no language built in ([smaltdb ADR 0015](https://github.com/stenhoor/smaltdb/blob/main/docs/adr/0015-smaltql.md)):
+SQL comes from [smaltql](https://github.com/stenhoor/smaltql), and optional features are plugins
+([ADR 0012](https://github.com/stenhoor/smaltdb/blob/main/docs/adr/0012-plugins.md)). smaltui's engine worker is
+smaltdb with smaltql and the three plugins it uses: `@smaltdb/io` (CSV, TSV, JSON import, export and `read_csv`),
+`@smaltdb/external` (files, URLs, S3 and Azure behind external tables) and `@smaltdb/parquet`.
 
-To move to a newer smaltdb:
-
-```bash
-npm install smaltdb@latest
-```
-
-To try an unreleased smaltdb from a local checkout (`npm run vendor` goes back to the npm package):
+None of these is on npm yet. `packed.json` pins each to a commit, the way the smaltdb repositories pin each other, and
+`npm run deps` builds them:
 
 ```bash
-npm run vendor -- --from ../smaltdb
+npm ci
 ```
 
-The engine can also come from a CDN at runtime:
+```bash
+npm run deps   # build and install the pinned packages, bundle the engine into vendor/smaltdb/, compile
+```
 
-| URL parameter | Engine |
-|---|---|
-| *(none)* / `?engine=vendor` | `./vendor/smaltdb/` (the pinned npm version) |
-| `?engine=npm` | latest `smaltdb` from jsDelivr |
-| `?engine=npm@0.8.3` | a specific npm version from jsDelivr |
-| `?engine=https://host/path/dist/` | any folder that serves `smaltdb.js` + `smaltdb-worker.js` |
+`scripts/fetch-packed.mjs` (the same file as in smaltdb and its plugins) checks out each commit, builds it, packs it and
+installs the tarballs with `npm install --no-save`, so nothing reaches `package.json` or the lockfile; run it again
+after every `npm ci` or `npm install`. `scripts/vendor-smaltdb.mjs` then bundles `vendor/smaltdb/`:
 
-The choice can also be made in **⋯ → Engine source** (it is remembered per browser). If `vendor/` is missing
-because the folder is served without `npm install`, the page falls back to the latest release on jsDelivr. A
-cross-origin engine worker is started through a same-origin blob module, so a CDN works without extra setup.
+- `smaltdb.js`: the smaltdb client and the plugins' client helpers (`importCSV`, `registerFile`, …);
+- `smaltdb-worker.js`: the engine worker (`defineWorker({ languages: [sqlLanguage], plugins: [io, external, parquet] })`);
+- `chunks/`: hyparquet-compressors, loaded on first use for compressed Parquet files;
+- `VERSION.json` (the pinned commits) and `THIRD_PARTY_NOTICES.txt` (licences of the bundled third-party code).
+
+`vendor/` is generated, not committed. The page loads the engine from there, from the same origin, so it works offline
+and under cross-origin isolation.
+
+To move to newer commits, edit `packed.json` and run `npm run deps`. To try a local checkout:
+
+```bash
+node scripts/fetch-packed.mjs --local smaltdb=../smaltdb && npm run vendor
+```
+
+`?engine=https://host/path/` loads a folder built the same way instead (also in **⋯ → Engine source**, remembered
+per browser). npm engines are not offered: npm has only smaltdb 0.8.3, which has SQL built in and the older client
+API. When smaltdb 0.9 and its packages are published (as `@smaltworks/…`), the pins become ordinary dependencies.
 
 ## Deploy
 
@@ -213,17 +225,17 @@ app/main.ts           application: tabs, explorer, query runner, table viewer, i
 app/editor.ts         SQL editor (highlight overlay, completion, shortcuts)
 app/grid.ts           virtualized data grid
 app/sql.ts            tokenizer, statement splitter, parameter scanner, formatter
-app/engine.ts         smaltui's engine settings (vendor folder, remembered choice) for smaltkit's loader
+app/engine.ts         smaltui's engine settings for smaltkit's loader, and the plugins' client helpers
 app/env.ts            environment manifests: types, load, export, SQL dump
 app/store.ts          localStorage prefs/history, IndexedDB file handles
 app/globals.d.ts      File System Access API declarations missing from TypeScript's DOM library
 site/demo.ts          the landing page's live console
 (app|site)/*.js       compiled output (npm run compile; not committed)
-vendor/smaltdb/       engine, copied from node_modules/smaltdb on install (not committed)
+vendor/smaltdb/       engine: smaltdb, smaltql and plugins, bundled by npm run deps (not committed)
 vendor/smaltkit/      shared modules (engine loader and OPFS catalog, data-URL rewriting, CORS hints), copied from node_modules/smaltkit on install (not committed)
 envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)
-scripts/              compile (TypeScript → .js), vendor (smaltdb and smaltkit → vendor/), brand sync, build and serve scripts
+scripts/              compile (TypeScript → .js), fetch-packed (pinned packages), vendor (→ vendor/), brand sync, build, serve
 test/e2e.mjs          end-to-end test in headless Chromium (npm test)
 test/smoke.mjs        post-deploy check of a live site
 ```

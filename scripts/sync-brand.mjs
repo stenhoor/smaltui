@@ -29,6 +29,8 @@ const FILES = [
   'badges/powered-by-smaltdb-on-dark.svg',
   'badges/powered-by-smaltui.svg',
   'badges/powered-by-smaltui-on-dark.svg',
+  'badges/powered-by-smaltql.svg',
+  'badges/powered-by-smaltql-on-dark.svg',
   // Before 1.0 (BRAND.md): the stage badge, and the smaltworks endorsement for footers and READMEs.
   'badges/work-in-progress.svg',
   'badges/work-in-progress-on-dark.svg',

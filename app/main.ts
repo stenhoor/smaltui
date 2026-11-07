@@ -1,5 +1,5 @@
 // smaltui — a SQL console for smaltdb that runs entirely in the browser.
-import { loadEngine, engineSpec, setEngineSpec, opfsAvailable, listOpfsDatabases, deleteOpfsDatabase, type ArrayResult, type Database, type Engine } from './engine.js';
+import { loadEngine, engineSpec, setEngineSpec, opfsAvailable, listOpfsDatabases, deleteOpfsDatabase, importCSV, importJSON, exportCSV, exportJSON, registerFile, registerCredentials, type ArrayResult, type Database, type Engine } from './engine.js';
 import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, quoteLiteral, tableNameFrom, formatSql, leadingKeyword, type ParamSlot, type SqlValue, type Statement } from './sql.js';
 import { Editor, type EditorSchema, type SchemaTable } from './editor.js';
 import { Grid, formatValue, plainValue, exportRows, type Column, type ExportFormat, type Row, type SortDir, type Value } from './grid.js';
@@ -510,7 +510,7 @@ async function restoreFiles(): Promise<void> {
   const keep = new Map<string, LinkedFile>();
   for (const [name, f] of app.files) if (f.source && f.db === app.dbName) keep.set(name, f);
   app.files = keep;
-  for (const [name, f] of app.files) if (f.source) await db().registerFile(name, f.source).catch(() => (f.state = 'missing'));
+  for (const [name, f] of app.files) if (f.source) await registerFile(db(), name, f.source).catch(() => (f.state = 'missing'));
   for (const { name, handle } of await loadFileHandles(app.dbName ?? '')) {
     if (app.files.get(name)?.state === 'ok') continue;
     let perm: PermissionState = 'prompt';
@@ -519,7 +519,7 @@ async function restoreFiles(): Promise<void> {
     } catch {}
     if (perm === 'granted') {
       try {
-        await db().registerFile(name, handle);
+        await registerFile(db(), name, handle);
         app.files.set(name, { source: handle, handle, state: 'ok', db: app.dbName });
         continue;
       } catch {}
@@ -529,7 +529,7 @@ async function restoreFiles(): Promise<void> {
 }
 
 async function linkFile(name: string, source: Blob | FileSystemFileHandle, handle: FileSystemFileHandle | null = null): Promise<void> {
-  await db().registerFile(name, source);
+  await registerFile(db(), name, source);
   app.files.set(name, { source, handle, state: 'ok', db: app.dbName });
   if (handle) await saveFileHandle(app.dbName ?? '', name, handle);
   renderLinkedFiles();
@@ -812,7 +812,7 @@ async function countRows(name: string): Promise<void> {
 
 async function exportObject(name: string, format: 'csv' | 'json'): Promise<void> {
   try {
-    const text = format === 'csv' ? await db().exportCSV(`SELECT * FROM ${quoteIdent(name)}`) : await db().exportJSON(`SELECT * FROM ${quoteIdent(name)}`);
+    const text = format === 'csv' ? await exportCSV(db(), `SELECT * FROM ${quoteIdent(name)}`) : await exportJSON(db(), `SELECT * FROM ${quoteIdent(name)}`);
     download(`${name}.${format}`, text, format === 'csv' ? 'text/csv' : 'application/json');
   } catch (e) {
     toast(errText(e), 'err');
@@ -1415,7 +1415,7 @@ async function saveResultAsTable(res: ResultSet, grid: Grid): Promise<void> {
   try {
     const cols = res.columns.map((c, i) => (res.columns.indexOf(c) !== i ? `${c}_${i + 1}` : c));
     const data = grid.viewRows().map((r) => Object.fromEntries(cols.map((c, i) => { const v = r[i]; return [c, typeof v === 'bigint' ? v.toString() : v instanceof Uint8Array ? null : v]; })));
-    const r = await write((db) => db.importJSON(name, JSON.stringify(data), { create: true }));
+    const r = await write((db) => importJSON(db, name, JSON.stringify(data), { create: true }));
     toast(`Created ${name} with ${fmtNum(r.rows)} rows`, 'ok');
     await refreshSchema();
   } catch (e) {
@@ -1956,7 +1956,7 @@ function importTab(): ImportTab {
           const text = await blob.slice(0, 262144).text();
           blob = new Blob([text.slice(0, text.lastIndexOf('\n') + 1)]);
         }
-        await db().registerFile('__preview', blob);
+        await registerFile(db(), '__preview', blob);
         const r = await db().query(`SELECT * FROM ${fn}('file:__preview'${args.length ? ', ' + args.join(', ') : ''}) LIMIT 100`, [], { rowMode: 'array' });
         const types = r.columns.map((_, i) => {
           const seen = new Set(r.map((row) => (row[i] === null ? null : typeof row[i] === 'number' ? (Number.isInteger(row[i]) ? 'INTEGER' : 'REAL') : typeof row[i] === 'bigint' ? 'INTEGER' : 'TEXT')));
@@ -1970,7 +1970,7 @@ function importTab(): ImportTab {
         this.previewGrid.empty.textContent = errText(e);
         this.previewGrid.empty.style.display = '';
       } finally {
-        db().registerFile('__preview', null).catch(() => {});
+        registerFile(db(), '__preview', null).catch(() => {});
       }
     },
     importResult(text, err = false) {
@@ -1993,10 +1993,10 @@ function importTab(): ImportTab {
         let r;
         const blob = this.source!.blob;
         if (fmt === 'parquet') r = await write((db) => importParquet(db, table, blob));
-        else if (fmt === 'json' || fmt === 'ndjson') r = await write((db) => db.importJSON(table, blob, { create: mode === 'new' }));
+        else if (fmt === 'json' || fmt === 'ndjson') r = await write((db) => importJSON(db, table, blob, { create: mode === 'new' }));
         else {
           const delimiter = $('[data-delim]', el).value.replace('\\t', '\t') || (fmt === 'tsv' ? '\t' : ',');
-          r = await write((db) => db.importCSV(table, blob, { create: mode === 'new', header: $('[data-header]', el).checked, delimiter, emptyAsNull: $('[data-emptynull]', el).checked }));
+          r = await write((db) => importCSV(db, table, blob, { create: mode === 'new', header: $('[data-header]', el).checked, delimiter, emptyAsNull: $('[data-emptynull]', el).checked }));
         }
         this.importResult(`Imported ${fmtNum(r.rows)} rows into ${table} in ${fmtMs(now() - t0)}.`);
         addHistory({ sql: `-- import ${this.source!.label} → ${table} (${r.rows} rows)`, db: app.dbName, at: Date.now() });
@@ -2098,7 +2098,7 @@ function importTab(): ImportTab {
       }
       if ($('[data-lconn]', el).value === '__new' && $('[data-chead]', el).value.trim()) {
         const connection = $('[data-cname]', el).value.trim() || 'api';
-        await db().registerCredentials(`${connection}_credentials`, { endpoint: $('[data-curl]', el).value.trim(), headers: { [$('[data-chead]', el).value.trim()]: $('[data-cval]', el).value } });
+        await registerCredentials(db(), `${connection}_credentials`, { endpoint: $('[data-curl]', el).value.trim(), headers: { [$('[data-chead]', el).value.trim()]: $('[data-cval]', el).value } });
       }
     },
     async previewLink() {
@@ -2371,13 +2371,12 @@ async function engineDialog() {
     title: 'Engine source',
     body: `<p>smaltui loads the smaltdb engine from one of these. The page reloads to switch.</p>
       <label class="field"><span>Source</span><select name="kind">
-        <option value="vendor" ${cur === 'vendor' ? 'selected' : ''}>Bundled npm package (./vendor/smaltdb/, version pinned in package.json)</option>
-        <option value="npm" ${cur.startsWith('npm') ? 'selected' : ''}>npm via jsDelivr</option>
-        <option value="url" ${!['vendor'].includes(cur) && !cur.startsWith('npm') ? 'selected' : ''}>Custom URL (a folder with smaltdb.js and smaltdb-worker.js)</option>
+        <option value="vendor" ${cur === 'vendor' ? 'selected' : ''}>Bundled (./vendor/smaltdb/: smaltdb with smaltql and the io, external and Parquet plugins, pinned in packed.json)</option>
+        <option value="url" ${cur !== 'vendor' ? 'selected' : ''}>Custom URL (a folder built like vendor/smaltdb/, with smaltdb.js and smaltdb-worker.js)</option>
       </select></label>
-      <label class="field"><span>npm version or custom URL</span><input type="text" name="val" value="${esc(cur.startsWith('npm@') ? cur.slice(4) : cur.startsWith('npm') || cur === 'vendor' ? '' : cur)}" placeholder="latest · 0.1.0 · https://…/dist/"></label>
+      <label class="field"><span>Custom URL</span><input type="text" name="val" value="${esc(cur === 'vendor' ? '' : cur)}" placeholder="https://…/vendor/smaltdb/"></label>
       <p>Current: <code>${esc(app.engine?.label ?? cur)}</code></p>`,
-    buttons: [{ label: 'Cancel', value: null }, { label: 'Use and reload', primary: true, value: (f) => (f.kind.value === 'vendor' ? 'vendor' : f.kind.value === 'npm' ? (f.val.value.trim() ? `npm@${f.val.value.trim()}` : 'npm') : f.val.value.trim()) }],
+    buttons: [{ label: 'Cancel', value: null }, { label: 'Use and reload', primary: true, value: (f) => (f.kind.value === 'vendor' || !f.val.value.trim() ? 'vendor' : f.val.value.trim()) }],
   });
   if (!r) return;
   setEngineSpec(r);
@@ -2416,7 +2415,8 @@ function aboutDialog(): void {
       <p>smaltui is a SQL console for <a href="https://smaltdb.dev" target="_blank" rel="noopener">smaltdb</a> that runs entirely in the browser. It is a static site: serve the folder from any static host, and every visitor gets their own databases in their own browser.</p>
       <p>It is a work in progress: things change between releases, so keep the source data for anything you build here. Try it, break it, tell us on <a href="https://github.com/stenhoor/smaltui/issues" target="_blank" rel="noopener">GitHub</a>.</p>
       <dl class="kv" style="padding:0"><dt>Engine</dt><dd>${esc(app.engine?.label ?? '—')}</dd>
-      ${v.commit ? `<dt>smaltdb commit</dt><dd>${esc(v.commit)}</dd>` : ''}${v.version ? `<dt>smaltdb version</dt><dd>${esc(v.version)}</dd>` : ''}
+      ${v.version ? `<dt>smaltdb version</dt><dd>${esc(v.version)}</dd>` : ''}${v.commit ? `<dt>smaltdb commit</dt><dd>${esc(v.commit)}</dd>` : ''}
+      ${Object.entries(v.packages ?? {}).filter(([n]) => n !== 'smaltdb').map(([n, p]) => `<dt>${esc(n)}</dt><dd>${esc(p.version)}${p.commit ? ' · ' + esc(p.commit.slice(0, 7)) : ''}</dd>`).join('')}
       <dt>Cross-origin isolated</dt><dd>${crossOriginIsolated ? 'yes (parallel readers, interruptible statements)' : 'no — serve with COOP/COEP headers for parallel readers'}</dd>
       <dt>OPFS</dt><dd>${opfsAvailable() ? 'available' : 'not available'}</dd>
       <dt>Database</dt><dd>${esc(app.dbName ?? '—')} (${esc(app.storage ?? '')}${app.db ? (db().isLeader ? ', owner tab' : ', shared with another tab') : ''})</dd></dl>

@@ -4,11 +4,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      smaltdb_version:
-        description: 'Deploy with this smaltdb npm version (e.g. 0.9.0 or latest). Empty = the version pinned in package-lock.json.'
-        required: false
-        default: ''
 
 permissions:
   contents: read
@@ -27,12 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci   # postinstall copies node_modules/smaltdb/dist into vendor/smaltdb
-      - name: Use another smaltdb version
-        if: ${{ inputs.smaltdb_version != '' }}
-        run: |
-          npm install --no-save "smaltdb@${{ inputs.smaltdb_version }}"
-          npm run vendor   # re-copy the engine: vendor/ was filled from the pinned version by npm ci
+      - run: npm ci
+      - run: npm run deps   # build the smaltdb 0.9 packages pinned in packed.json and bundle the engine into vendor/smaltdb
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

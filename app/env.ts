@@ -21,7 +21,7 @@
 //
 // Relative paths resolve against the manifest's URL. "link" steps create external tables that read
 // the source at query time (it must be reachable from the browser: same origin or CORS-enabled).
-import type { Database } from './engine.js';
+import { importCSV, importJSON, registerFile, type Database } from './engine.js';
 import { quoteIdent, quoteLiteral, type SqlValue } from './sql.js';
 import { normalizeDataUrl } from '../vendor/smaltkit/urls.js';
 
@@ -125,11 +125,11 @@ export async function applyManifest(db: Database, m: Manifest, log: (level: LogL
         format === 'parquet'
           ? await importParquet(db, table, blob)
           : format === 'json' || format === 'ndjson'
-          ? await db.importJSON(table, blob, opts)
-          : await db.importCSV(table, blob, format === 'tsv' ? { delimiter: '\t', ...opts } : opts);
+          ? await importJSON(db, table, blob, opts)
+          : await importCSV(db, table, blob, format === 'tsv' ? { delimiter: '\t', ...opts } : opts);
       log('ok', `${label}: imported ${res.rows} rows into ${step.table}`);
     } else if (step.data) {
-      const res = await db.importJSON(requireTable(step, label), JSON.stringify(step.data), { create: true, ...(step.options ?? {}) });
+      const res = await importJSON(db, requireTable(step, label), JSON.stringify(step.data), { create: true, ...(step.options ?? {}) });
       log('ok', `${label}: loaded ${res.rows} rows into ${step.table}`);
     } else if (step.link) {
       const location = /^[a-z]+:/i.test(step.link) && !/^https?:/i.test(step.link) ? step.link : resolve(step.link);
@@ -166,7 +166,7 @@ export function formatFromName(name: string): DataFormat {
  */
 export async function importParquet(db: Database, table: string, blob: Blob): Promise<{ rows: number }> {
   const tmp = `__import_${Date.now().toString(36)}`;
-  await db.registerFile(tmp, blob);
+  await registerFile(db, tmp, blob);
   try {
     await db.exec(`CREATE EXTERNAL TABLE ${quoteIdent(tmp)} WITH (location = ${quoteLiteral('file:' + tmp)}, format = 'parquet')`);
     try {
@@ -179,7 +179,7 @@ export async function importParquet(db: Database, table: string, blob: Blob): Pr
       await db.exec(`DROP EXTERNAL TABLE IF EXISTS ${quoteIdent(tmp)}`);
     }
   } finally {
-    await db.registerFile(tmp, null).catch(() => {});
+    await registerFile(db, tmp, null).catch(() => {});
   }
 }
 

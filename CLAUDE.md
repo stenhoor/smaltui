@@ -7,7 +7,9 @@ file is the shared starting point. smaltdb has the matching file (stenhoor/smalt
 ## Commands
 
 ```bash
-npm install            # postinstall copies smaltdb and smaltkit into vendor/ and compiles the TypeScript
+npm install            # postinstall copies smaltkit into vendor/ and compiles the TypeScript
+npm run deps           # build smaltdb 0.9, smaltql and the plugins pinned in packed.json; bundle vendor/smaltdb/
+                       # (not on npm yet: run it after every npm ci / npm install)
 npm run dev            # serve and recompile on change
 npm run typecheck      # tsc --noEmit, strict (CI runs it)
 npm run serve          # compile once, then the workbench, http://localhost:8080 (COOP/COEP on; --no-isolation to drop it,
@@ -16,8 +18,7 @@ npm run preview        # build, then serve dist/ (landing page at /, workbench a
 npm run build          # assemble the site in dist/
 npm test               # test/e2e.mjs in headless Chromium (needs Playwright, see below)
 node test/smoke.mjs <url>   # check a deployed site; the Pages workflow runs it after each deploy
-npm run vendor -- --from ../smaltdb   # try an unreleased smaltdb from a local checkout
-npm run vendor         # back to the npm package
+node scripts/fetch-packed.mjs --local smaltdb=../smaltdb && npm run vendor   # try a local smaltdb checkout
 npm run brand:sync -- --ref <commit>   # update brand/ from stenhoor/smalt-brand (CI: node scripts/sync-brand.mjs --check)
 ```
 
@@ -48,10 +49,13 @@ npm install --no-save playwright && npx playwright install --with-deps chromium
 
 ## Cross-repo impact
 
-- **smaltdb:** smaltui depends on the npm package at `^0.8.3`. smaltdb is moving optional code out of its core into
-  plugins ([ADR 0012](https://github.com/stenhoor/smaltdb/blob/main/docs/adr/0012-plugins.md)): external tables,
-  CSV/JSON import and the Parquet reader, all of which smaltui uses. Upgrade deliberately, in its own PR, and run
-  `npm test`.
+- **smaltdb and smaltql:** smaltui runs smaltdb 0.9, which has no language built in: SQL is
+  [smaltql](https://github.com/stenhoor/smaltql) ([smaltdb ADR 0015](https://github.com/stenhoor/smaltdb/blob/main/docs/adr/0015-smaltql.md)),
+  and external tables, CSV/JSON import and Parquet are plugins
+  ([ADR 0012](https://github.com/stenhoor/smaltdb/blob/main/docs/adr/0012-plugins.md)). None is on npm yet:
+  `packed.json` pins smaltdb, smaltql, `@smaltdb/io`, `@smaltdb/external` and `@smaltdb/parquet` to commits (keep
+  them a set that smaltdb's own `packed.json` has tested), and `scripts/vendor-smaltdb.mjs` builds the worker that
+  registers them. Move the pins deliberately, in their own PR, and run `npm test`.
 - **smalt-brand:** logos, badges, colours, type and voice come from
   [stenhoor/smalt-brand](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md). Change assets there and sync
   `brand/`. Build colours from its tokens (`--primary`, `--text-2`, `--syn-*`, …), never hand-picked hex values, and

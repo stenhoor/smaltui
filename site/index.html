@@ -46,7 +46,7 @@
         <a class="quiet" href="workbench/">or start with an empty database →</a>
       </div>
       <ul class="facts">
-        <li id="factEngine">smaltdb from npm</li>
+        <li id="factEngine">smaltdb with smaltql</li>
         <li>Stored in your browser (OPFS)</li>
         <li>CSV · JSON · Parquet</li>
         <li>Static hosting, MIT license</li>
@@ -113,7 +113,7 @@
   "queries": [{ "title": "Revenue", "sql": "SELECT …" }]
 }</code></pre>
         <ol class="steps">
-          <li><b>smaltdb runs in a Web Worker.</b> It comes from the npm package and is served with the page, so queries never block the UI.</li>
+          <li><b>smaltdb runs in a Web Worker.</b> It is built with smaltql, its SQL language, and the plugins for CSV, JSON, Parquet and external data, and served with the page, so queries never block the UI.</li>
           <li><b>Data stays local.</b> Databases are kept in the browser's Origin Private File System or in memory. External tables read files and URLs only when they are queried.</li>
           <li><b>Any static host works.</b> This site is served by GitHub Pages. With COOP/COEP headers (Netlify, Cloudflare), smaltdb also runs queries on parallel worker threads.</li>
         </ol>
@@ -139,6 +139,7 @@
   <footer class="site-foot">
     <span class="foot-left">
       <a class="powered" href="https://smaltdb.dev" rel="noopener"><img class="logo-light" src="workbench/brand/badges/powered-by-smaltdb.svg" alt="Powered by smaltdb" width="172" height="28"><img class="logo-dark" src="workbench/brand/badges/powered-by-smaltdb-on-dark.svg" alt="Powered by smaltdb" width="172" height="28"></a>
+      <a class="powered" href="https://stenhoor.github.io/smaltql/" rel="noopener"><img class="logo-light" src="workbench/brand/badges/powered-by-smaltql.svg" alt="Powered by smaltql" width="172" height="28"><img class="logo-dark" src="workbench/brand/badges/powered-by-smaltql-on-dark.svg" alt="Powered by smaltql" width="172" height="28"></a>
       <a class="powered" href="https://smaltworks.dev" rel="noopener"><img class="logo-light" src="workbench/brand/badges/a-smaltworks-project.svg" alt="A smaltworks project" height="28"><img class="logo-dark" src="workbench/brand/badges/a-smaltworks-project-on-dark.svg" alt="A smaltworks project" height="28"></a>
       <span>smaltui · MIT · <span id="footEngine">smaltdb</span> · Stay smalty.</span>
     </span>
