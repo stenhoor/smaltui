@@ -21,7 +21,7 @@ const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } })
 // The brand fonts come from Google Fonts; serve an empty stylesheet so tests run offline and deterministically
 // (the pages fall back to system fonts, as they would if Google Fonts were unreachable).
 await ctx.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
-// TypeScript tabs strip types with the sucrase plugin from vendor/: nothing for them may come from a CDN.
+// TypeScript tabs strip types with smaltkit/typescript from vendor/: nothing for them may come from a CDN.
 const cdnRequests = [];
 ctx.on('request', (r) => {
   if (/^https:\/\/(cdn\.jsdelivr\.net|unpkg\.com|esm\.sh)\//.test(r.url())) cdnRequests.push(r.url());
@@ -296,7 +296,13 @@ try {
     await page.keyboard.press('Control+Enter');
     await page.waitForSelector('.pane.active .msg.err', { timeout: 10000 });
     const syntax = await activePane().locator('.msg.err').last().innerText();
-    if (!/line 2, column 19: Unexpected token/.test(syntax)) throw new Error('syntax error: ' + syntax);
+    if (!/line 2, column 19: An expression expected/.test(syntax)) throw new Error('syntax error: ' + syntax);
+    // Code that would make code of its own (an enum) is refused, with where and what to write instead.
+    await activePane().locator('textarea.ed-input').fill("const a = 1;\n  enum Color { Red }");
+    await page.keyboard.press('Control+Enter');
+    await page.waitForFunction(() => [...document.querySelectorAll('.pane.active .msg.err')].some((m) => /line 2, column 3: An enum/.test(m.textContent ?? '')), null, { timeout: 10000 }).catch(async (e) => {
+      throw new Error(e.message + ' ' + (await page.evaluate(() => [...document.querySelectorAll('.pane.active .msg.err')].map((m) => m.textContent).join(' | '))));
+    });
     if (cdnRequests.length) throw new Error('TypeScript tabs fetched from a CDN: ' + cdnRequests.join(', '));
     // An unknown table is an error in Messages, and the tab is kept with the others.
     await activePane().locator('textarea.ed-input').fill("table('no_such_table').head(1)");

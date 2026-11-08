@@ -76,10 +76,10 @@ npm install --no-save playwright && npx playwright install --with-deps chromium
   them a set that smaltdb's own `packed.json` has tested), and `scripts/vendor-smaltdb.mjs` builds the worker that
   registers them. It also pins smaltdf (`@smaltdb/df`), the dataframe language for TypeScript tabs: smaltdf builds
   plans for the engine's plan layer (never SQL), the worker registers its language (`dfLanguage`, for its views), and
-  `vendor/smaltdf/` holds smaltdf for the tab. The tab strips types with a plugin,
-  [`@smaltworks/smaltdb-sucrase`](https://github.com/stenhoor/smaltdb-sucrase) (sucrase), pinned in `packed.json` and
-  bundled with its notices into `vendor/smaltdb-sucrase/`: outside code a feature needs goes in a plugin, never in core,
-  and nothing is loaded from a CDN (smalt-brand DECISIONS.md, "Outside code: ask first, and plugins carry it").
+  `vendor/smaltdf/` holds smaltdf for the tab. The tab strips types with `smaltkit/typescript`
+  ([smaltty](https://github.com/stenhoor/smaltty), ours, no dependencies), from `vendor/smaltkit/`; nothing is loaded
+  from a CDN (smalt-brand DECISIONS.md, "Outside code: ask first, and plugins carry it"). It follows TypeScript's rules:
+  what would make code of its own (enums, namespaces with values, parameter properties, `<T>x`) is refused.
   smaltdb's pin follows smaltdf's. Move the pins deliberately, in their own PR, and run `npm test`.
 - **smalt-brand:** logos, badges, colours, type and voice come from
   [stenhoor/smalt-brand](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md). Change assets there and sync

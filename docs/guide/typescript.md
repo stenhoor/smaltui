@@ -35,8 +35,19 @@ the same keys.
 
 smaltdf's functions (`table`, `col`, `lit`, `len`, `concat`, `update`, …) are in scope, with `db`, the open database.
 `import { … } from '@smaltdb/df'` works too, so code can be copied to and from a project. The code is TypeScript:
-its types are removed before it runs, not checked, by the `@smaltworks/smaltdb-sucrase` plugin (sucrase). It comes
-with the workbench and loads the first time a tab runs, so tabs work offline. A syntax error names its line and column.
+its types are removed before it runs, not checked, by [smaltty](https://github.com/stenhoor/smaltty). It replaces them
+with spaces, so a syntax error names the line and column you wrote. It comes with the
+workbench and loads the first time a tab runs, so tabs work offline.
+
+Types are removed, never turned into code, as with TypeScript's `erasableSyntaxOnly`. So a tab can't use what would
+make code of its own, and says what to write instead:
+
+| Instead of | Write |
+| --- | --- |
+| `enum Color { Red, Green }` | `const Color = { Red: 'red', Green: 'green' } as const` |
+| `<number>x` | `x as number` |
+| `constructor(private n: number) {}` | a field `n: number`, set in the constructor |
+| `namespace N { export const x = 1 }` | an object: `const N = { x: 1 }` |
 
 The editor highlights TypeScript and completes smaltdf's functions, the methods after a `.`, table names in
 `table('…')` and column names in `col('…')` (<kbd>Ctrl</kbd>+<kbd>Space</kbd>).
