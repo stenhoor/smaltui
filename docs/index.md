@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: 'sm<span class="alt">alt</span><span class="suffix tool">ui</span>'
-  text: Small. Alternative. Query.
+  text: 'Small. Alternative.<br>Query.'
   tagline: A query workbench for smaltdb that runs entirely in the browser.
   image:
     light: /logos/smaltui/chevron-mark.svg

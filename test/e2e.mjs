@@ -302,12 +302,13 @@ try {
       await page.waitForSelector('.VPHero .name', { timeout: 20000 });
       const home = await page.evaluate(async () => ({
         name: document.querySelector('.VPHero .name')?.textContent,
-        text: document.querySelector('.VPHero .text')?.textContent,
+        // The tagline breaks after "Small. Alternative." on every smalt site (smalt-brand BRAND.md rule 2).
+        text: document.querySelector('.VPHero .text')?.innerHTML,
         imgs: [...document.querySelectorAll('img')].filter((i) => i.offsetParent !== null).map((i) => [i.src.split('/').pop(), i.complete && i.naturalWidth > 0]),
         icon: (await fetch(document.querySelector('link[rel="icon"]').href)).ok,
       }));
       const shown = Object.fromEntries(home.imgs);
-      if (home.name !== 'smaltui' || home.text !== 'Small. Alternative. Query.' || !home.icon) throw new Error('home: ' + JSON.stringify(home));
+      if (home.name !== 'smaltui' || home.text !== 'Small. Alternative.<br>Query.' || !home.icon) throw new Error('home: ' + JSON.stringify(home));
       // The family's shared footer and stage badge (smalt-brand BRAND.md, "Sites and READMEs").
       for (const img of ['lockup.svg', 'work-in-progress.svg', 'a-smaltworks-project.svg']) {
         if (!shown[img]) throw new Error(`home: ${img} not shown: ${JSON.stringify(home.imgs)}`);
