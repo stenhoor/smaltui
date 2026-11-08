@@ -236,6 +236,36 @@ try {
   });
   await shot('05-demo');
 
+  await step('TypeScript tab: smaltdf frames run in the engine, types are stripped, errors are reported', async () => {
+    await page.goto(base + '?env=envs/demo/env.json');
+    await page.waitForFunction(() => window.smaltui?.db && window.smaltui.schema.tables.has('orders'), null, { timeout: 20000 });
+    // The demo's TypeScript tab: show() and the last expression are both results.
+    await page.locator('.tab', { hasText: 'Frames (smaltdf)' }).click();
+    await activePane().locator('textarea.ed-input').click();
+    await page.keyboard.press('Control+Enter');
+    await page.waitForFunction(() => [...document.querySelectorAll('.pane.active .subtab')].some((b) => b.textContent.startsWith('Result')), null, { timeout: 20000 });
+    const tabs = await page.evaluate(() => [...document.querySelectorAll('.pane.active .subtab')].map((b) => b.textContent));
+    if (!tabs.includes('By category4') || !tabs.includes('Result10') || !tabs.includes('Plan')) throw new Error(JSON.stringify(tabs));
+    await activePane().locator('.subtab', { hasText: 'By category' }).click();
+    const cat = await activePane().locator('.subpane.active tbody').innerText();
+    if (!/Gear\s+14798\s+215/.test(cat)) throw new Error(cat);
+    // A new tab: TypeScript annotations are stripped, smaltdf can be imported explicitly.
+    await page.locator('#btnNewTs').click();
+    await activePane().locator('textarea.ed-input').fill("import { table, col } from '@smaltdb/df';\nconst min: number = 10;\ntable('products').filter(col('price').gt(min)).select('name', 'price').sort('price')");
+    await page.keyboard.press('Control+Enter');
+    await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent.startsWith('Result'), null, { timeout: 20000 });
+    const rows = await activePane().locator('.subpane.active tbody tr[data-row]').count();
+    const all = await page.evaluate(async () => (await window.smaltui.db.query('SELECT count(*) AS n FROM products WHERE price > 10'))[0].n);
+    if (!rows || rows !== all) throw new Error(`price > 10: ${rows} rows shown, ${all} expected`);
+    // An unknown table is an error in Messages, and the tab is kept with the others.
+    await activePane().locator('textarea.ed-input').fill("table('no_such_table').head(1)");
+    await page.keyboard.press('Control+Enter');
+    await page.waitForSelector('.pane.active .msg.err', { timeout: 10000 });
+    const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('smaltui.tsTabs') ?? '[]'));
+    if (!kept.some((t) => /no_such_table/.test(t.source))) throw new Error('TypeScript tab not kept: ' + JSON.stringify(kept));
+  });
+  await shot('06-typescript');
+
   await step('export environment round-trips', async () => {
     const m = await page.evaluate(async () => {
       const { exportManifest } = await import('/app/env.js');

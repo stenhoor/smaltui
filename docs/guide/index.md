@@ -21,6 +21,7 @@ smaltui is a static site: open it, and the engine starts in your browser.
   - Results are fetched 1,000 rows at a time. Export them as CSV, JSON or INSERT statements, or save them as a table.
 - **Table viewer:** paged data with sorting and a `WHERE` filter, columns, indexes, constraints and DDL. In tables
   with a primary key, edit cells (double-click), insert and delete rows.
+- **[TypeScript tabs](./typescript):** query with smaltdf, the dataframe language, in TypeScript.
 - **[Import and link](./import):** load files into tables, or query them in place as external tables.
 - **History**, light and dark themes, and keyboard shortcuts (**⋯ → Keyboard shortcuts**).
 

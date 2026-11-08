@@ -15,7 +15,7 @@
 //     { "link": "data/rates.csv", "table": "rates", "format": "csv", "options": { "header": true } },
 //     { "connection": "api", "url": "https://example.com/v1/" }
 //   ],
-//   "queries": [ { "title": "Top cities", "sql": "SELECT …" } ],
+//   "queries": [ { "title": "Top cities", "sql": "SELECT …" }, { "title": "Frames", "lang": "ts", "sql": "table('cities').head(5)" } ],
 //   "open": ["cities"]
 // }
 //
@@ -56,7 +56,10 @@ export interface ManifestStep {
 
 export interface SavedQuery {
   title: string;
+  /** The tab's text: SQL, or TypeScript with smaltdf when `lang` is "ts". */
   sql: string;
+  /** "sql" (default) opens a query tab; "ts" opens a TypeScript tab (smaltdf). */
+  lang?: 'sql' | 'ts';
 }
 
 /** An environment manifest (see the format above). */

@@ -70,11 +70,16 @@ npm install --no-save playwright && npx playwright install --with-deps chromium
   ([ADR 0012](https://github.com/stenhoor/smaltdb/blob/main/docs/adr/0012-plugins.md)). None is on npm yet:
   `packed.json` pins smaltdb, smaltql, `@smaltdb/io`, `@smaltdb/external` and `@smaltdb/parquet` to commits (keep
   them a set that smaltdb's own `packed.json` has tested), and `scripts/vendor-smaltdb.mjs` builds the worker that
-  registers them. Move the pins deliberately, in their own PR, and run `npm test`.
+  registers them. It also pins smaltdf (`@smaltdb/df`), the dataframe language for TypeScript tabs: smaltdf builds
+  plans for the engine's plan layer (never SQL), the worker registers its language (`dfLanguage`, for its views), and
+  `vendor/smaltdf/` holds smaltdf and sucrase (which strips the types) for the tab. smaltdb's pin follows smaltdf's. Move the pins deliberately, in their own PR, and run `npm test`.
 - **smalt-brand:** logos, badges, colours, type and voice come from
   [stenhoor/smalt-brand](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md). Change assets there and sync
   `brand/`. Build colours from its tokens (`--primary`, `--text-2`, `--syn-*`, …), never hand-picked hex values, and
   follow its voice: say what smaltui is, never what it isn't.
+- **smaltnb:** notebooks are [smaltnb](https://github.com/stenhoor/smaltnb)'s. smaltui is not a notebook: it has
+  editor tabs for SQL (smaltql) and TypeScript (smaltdf), and its editor and grid are planned to move to smaltkit for
+  smaltnb to use (smaltnb DESIGN.md, decisions 20-22).
 - **smaltkit:** code shared with smaltbi lives in [stenhoor/smaltkit](https://github.com/stenhoor/smaltkit), pinned
   to a commit in package.json (`github:stenhoor/smaltkit#<commit>`) until it is on npm, and imported from
   `vendor/smaltkit/` (see [smaltkit](README.md#smaltkit)). Change shared code there, then bump the pin here in its own

@@ -18,8 +18,10 @@ features:
     details: Tables, views, materialized views, external tables and connections, with columns and keys. Right-click an object to script SELECT, INSERT or DDL, count rows, refresh or drop it.
   - title: Query editor
     details: Tabs with highlighting and completion of names and aliases. Run the statement at the cursor or a whole script, with bind variables, query plans, and syntax errors marked where they occur.
-  - title: Databases and history
-    details: Open, create and delete databases kept in your browser, or work in memory. Every statement you run is in a searchable history, per database.
+  - title: TypeScript tabs
+    details: Beside the SQL tabs, query in TypeScript with smaltdf, the dataframe language for smaltdb. Frames and expressions run as plans in the same engine, on the same database.
+    link: /guide/typescript
+    linkText: TypeScript tabs
   - title: Data grids
     details: Virtualized results fetched on demand. Browse tables with paging, sorting and a WHERE filter; edit cells and add or delete rows in tables with a primary key.
   - title: Import and link
@@ -35,7 +37,7 @@ features:
 ## Your data stays in your browser
 
 smaltui runs on [smaltdb](https://smaltdb.dev), the smaltworks engine, with [smaltql](https://stenhoor.github.io/smaltql/)
-for SQL, in a Web Worker: databases live in the browser's private storage (OPFS) or in memory, and the page fetches only
+for SQL and [smaltdf](https://stenhoor.github.io/smaltdf/) for dataframes, in a Web Worker: databases live in the browser's private storage (OPFS) or in memory, and the page fetches only
 the files and URLs you import or link. It is a folder of static files: there is no server to set up.
 smaltui is one of the [smaltworks](https://smaltworks.dev) tools, beside [smaltbi](https://stenhoor.github.io/smaltbi/)
 reports and [smaltnb](https://stenhoor.github.io/smaltnb/) notebooks.

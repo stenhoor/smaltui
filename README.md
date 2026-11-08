@@ -39,6 +39,10 @@ database (schema, data, linked sources, saved queries) when it opens.
   - Results are fetched on demand: the first 1,000 rows, then **Fetch more** or **Fetch all**. Grids are virtualized.
   - Syntax errors mark the failing token in the editor. `Esc` or **Stop** cancels a running statement.
   - Export results as CSV, JSON or INSERT statements, copy them as TSV, or save them as a new table.
+- **TypeScript tabs** (**ƒ TypeScript**): an editor for [smaltdf](https://stenhoor.github.io/smaltdf/), smaltdb's
+  dataframe language, beside the SQL tabs. `Ctrl+Enter` runs the tab: its last expression and every `show(value)` are
+  results (frames as grids, with the plan they ran as). smaltdf's functions and `db` are in scope; types are stripped
+  with sucrase. Kept with the tabs, saved as `.ts` files, and carried in manifests as queries with `"lang": "ts"`.
 - **Table viewer:** paged data with server-side sorting (click a header) and a free-form `WHERE` filter. Columns,
   indexes, constraints and highlighted DDL. For external tables it shows the source; for materialized views, refresh
   controls. In tables with a primary key you can edit a cell (double-click or `Enter`; `Ctrl+Delete` sets NULL),
@@ -193,7 +197,10 @@ https://your.host/smaltui/workbench/?env=envs/demo/env.json
     { "connection": "api", "url": "https://data.example.com/v1/" },
     { "link": "data/exchange_rates.csv", "table": "exchange_rates", "format": "csv", "options": { "header": true } }
   ],
-  "queries": [{ "title": "Revenue", "sql": "SELECT …" }],
+  "queries": [
+    { "title": "Revenue", "sql": "SELECT …" },
+    { "title": "Frames", "lang": "ts", "sql": "table('orders').head(10)" }
+  ],
   "open": ["orders"]
 }
 ```
@@ -231,16 +238,18 @@ index.html            workbench page shell (served at /workbench/ in the built s
 docs/                 the product site (VitePress on the smaltworks docs theme): home page and guide
 site/                 the live console page (console.html, demo.ts), a page of its own
 app/main.ts           application: tabs, explorer, query runner, table viewer, import, history
-app/editor.ts         SQL editor (highlight overlay, completion, shortcuts)
+app/editor.ts         code editor (highlight overlay, completion, shortcuts): SQL, and TypeScript for smaltdf tabs
 app/grid.ts           virtualized data grid
 app/sql.ts            tokenizer, statement splitter, parameter scanner, formatter
+app/ts.ts             TypeScript tokenizer, highlighting and last-expression split (TypeScript tabs)
 app/engine.ts         smaltui's engine settings for smaltkit's loader, and the plugins' client helpers
 app/env.ts            environment manifests: types, load, export, SQL dump
 app/store.ts          localStorage prefs/history, IndexedDB file handles
 app/globals.d.ts      File System Access API declarations missing from TypeScript's DOM library
 site/demo.ts          the live console
 (app|site)/*.js       compiled output (npm run compile; not committed)
-vendor/smaltdb/       engine: smaltdb, smaltql and plugins, bundled by npm run deps (not committed)
+vendor/smaltdb/       engine: smaltdb, smaltql, smaltdf's language and plugins, bundled by npm run deps (not committed)
+vendor/smaltdf/       smaltdf and sucrase for TypeScript tabs, bundled by npm run deps (not committed)
 vendor/smaltkit/      shared modules (engine loader and OPFS catalog, data-URL rewriting, CORS hints), copied from node_modules/smaltkit on install (not committed)
 envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)
