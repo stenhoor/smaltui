@@ -42,7 +42,8 @@ database (schema, data, linked sources, saved queries) when it opens.
 - **TypeScript tabs** (**ƒ TypeScript**): an editor for [smaltdf](https://stenhoor.github.io/smaltdf/), smaltdb's
   dataframe language, beside the SQL tabs. `Ctrl+Enter` runs the tab: its last expression and every `show(value)` are
   results (frames as grids, with the plan they ran as). smaltdf's functions and `db` are in scope; types are stripped
-  with the TypeScript compiler (`typescript@5.9.3`, loaded at run time from jsDelivr, as smaltnb does). Kept with the tabs, saved as `.ts` files, and carried in manifests as queries with `"lang": "ts"`.
+  by the `@smaltworks/smaltdb-sucrase` plugin (sucrase), bundled into `vendor/smaltdb-sucrase/` with its notices. Kept
+  with the tabs, saved as `.ts` files, and carried in manifests as queries with `"lang": "ts"`.
 - **Table viewer:** paged data with server-side sorting (click a header) and a free-form `WHERE` filter. Columns,
   indexes, constraints and highlighted DDL. For external tables it shows the source; for materialized views, refresh
   controls. In tables with a primary key you can edit a cell (double-click or `Enter`; `Ctrl+Delete` sets NULL),
@@ -131,6 +132,9 @@ after every `npm ci` or `npm install`. `scripts/vendor-smaltdb.mjs` then bundles
 - `smaltdb-worker.js`: the engine worker (`defineWorker({ languages: [sqlLanguage], plugins: [io, external, parquet] })`);
 - `chunks/`: hyparquet-compressors, loaded on first use for compressed Parquet files;
 - `VERSION.json` (the pinned commits) and `THIRD_PARTY_NOTICES.txt` (licences of the bundled third-party code).
+
+It also bundles `vendor/smaltdf/smaltdf.js` (smaltdf) and `vendor/smaltdb-sucrase/sucrase.js` (the plugin that strips
+TypeScript types, with sucrase and its own `THIRD_PARTY_NOTICES.txt`), which TypeScript tabs load on first use.
 
 `vendor/` is generated, not committed. The page loads the engine from there, from the same origin, so it works offline
 and under cross-origin isolation.
@@ -250,6 +254,7 @@ site/demo.ts          the live console
 (app|site)/*.js       compiled output (npm run compile; not committed)
 vendor/smaltdb/       engine: smaltdb, smaltql, smaltdf's language and plugins, bundled by npm run deps (not committed)
 vendor/smaltdf/       smaltdf for TypeScript tabs, bundled by npm run deps (not committed)
+vendor/smaltdb-sucrase/  the plugin that strips TypeScript types (sucrase), bundled by npm run deps (not committed)
 vendor/smaltkit/      shared modules (engine loader and OPFS catalog, data-URL rewriting, CORS hints), copied from node_modules/smaltkit on install (not committed)
 envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)

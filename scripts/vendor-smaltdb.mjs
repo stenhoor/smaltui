@@ -8,9 +8,12 @@
 //   VERSION.json         the pinned commits (packed.json) and package versions
 //   THIRD_PARTY_NOTICES.txt  the licences of third-party code in the bundles
 //
-// and vendor/smaltdf/smaltdf.js (@smaltdb/df, smaltdf's frames and expressions; it builds plans that run in the worker),
-// which TypeScript tabs load on first use. They strip types with the TypeScript compiler, loaded at run time from
-// jsDelivr as smaltnb loads it: nothing of it is bundled here.
+// and two folders TypeScript tabs load on first use:
+//
+//   vendor/smaltdf/smaltdf.js          @smaltdb/df, smaltdf's frames and expressions (it builds plans that run in the
+//                                      worker)
+//   vendor/smaltdb-sucrase/sucrase.js  @smaltworks/smaltdb-sucrase, the plugin that strips TypeScript types with
+//                                      sucrase, with its own THIRD_PARTY_NOTICES.txt
 //
 // smaltdb has no language built in (smaltdb ADR 0015): the worker registers smaltql, and optional features are
 // plugins built into it (ADR 0012). None of these packages is on npm yet: packed.json pins each to a commit, and
@@ -52,32 +55,43 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning', metafile: true, absWorkingDir: root };
 const dfOut = join(root, 'vendor', 'smaltdf');
+const tsOut = join(root, 'vendor', 'smaltdb-sucrase');
 rmSync(dfOut, { recursive: true, force: true });
-const [client, worker, df] = await Promise.all([
+rmSync(tsOut, { recursive: true, force: true });
+const [client, worker, df, ts] = await Promise.all([
   build({ ...common, stdin: { contents: CLIENT, resolveDir: root, sourcefile: 'smaltdb-client.js' }, outfile: join(out, 'smaltdb.js') }),
   build({ ...common, stdin: { contents: WORKER, resolveDir: root, sourcefile: 'smaltdb-worker.js' }, outdir: out, entryNames: 'smaltdb-worker', splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
   build({ ...common, stdin: { contents: "export * from '@smaltdb/df';", resolveDir: root, sourcefile: 'smaltdf.js' }, outfile: join(dfOut, 'smaltdf.js') }),
+  build({ ...common, stdin: { contents: "export { transpile } from '@smaltworks/smaltdb-sucrase';", resolveDir: root, sourcefile: 'sucrase.js' }, outfile: join(tsOut, 'sucrase.js') }),
 ]);
 
-// Notices: every package from node_modules in either bundle, other than the smaltdb family (MIT, ours).
-const packages = new Set();
-for (const r of [client, worker, df]) {
-  for (const input of Object.keys(r.metafile.inputs)) {
-    const m = /node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(input);
-    if (m) packages.add(m[1]);
-  }
-}
+// Notices: every package from node_modules in a folder's bundles, other than the smalt family (MIT, ours), written
+// into that folder. Packages a nested node_modules holds (sucrase's own dependencies) are found there.
 const ours = new Set([...Object.keys(pins), 'smaltkit']);
-const notices = [];
-for (const name of [...packages].filter((n) => !ours.has(n)).sort()) {
-  const dir = join(root, 'node_modules', name);
-  const meta = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-  const licence = readdirSync(dir).find((f) => /^(licen[cs]e|copying|notice)/i.test(f));
-  notices.push(`${name}@${meta.version} (${meta.license ?? 'see below'})\n\n${licence ? readFileSync(join(dir, licence), 'utf8').trim() : '(no licence file in the package)'}`);
+function writeNotices(folder, results) {
+  const packages = new Map();
+  for (const r of results) {
+    for (const input of Object.keys(r.metafile.inputs)) {
+      const m = /^(.*node_modules\/((?:@[^/]+\/)?[^/]+))\//.exec(input);
+      if (m && !ours.has(m[2])) packages.set(m[2], m[1]);
+    }
+  }
+  const notices = [];
+  for (const [name, path] of [...packages].sort(([a], [b]) => a.localeCompare(b))) {
+    const dir = join(root, path);
+    const meta = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+    const licence = readdirSync(dir).find((f) => /^(licen[cs]e|copying|notice)/i.test(f));
+    notices.push(`${name}@${meta.version} (${meta.license ?? 'see below'})\n\n${licence ? readFileSync(join(dir, licence), 'utf8').trim() : '(no licence file in the package)'}`);
+  }
+  const rel = folder.slice(root.length + 1);
+  writeFileSync(join(folder, 'THIRD_PARTY_NOTICES.txt'), `Third-party code bundled into ${rel}/ by scripts/vendor-smaltdb.mjs.\n\n${notices.join('\n\n' + '-'.repeat(78) + '\n\n')}\n`);
+  return notices.length;
 }
-writeFileSync(join(out, 'THIRD_PARTY_NOTICES.txt'), `Third-party code bundled into vendor/smaltdb/ by scripts/vendor-smaltdb.mjs.\n\n${notices.join('\n\n' + '-'.repeat(78) + '\n\n')}\n`);
+const noticeCount = writeNotices(out, [client, worker, df]);
+const tsNotices = writeNotices(tsOut, [ts]);
 
 const versions = Object.fromEntries(Object.keys(pins).map((name) => [name, { version: JSON.parse(readFileSync(pkg(name), 'utf8')).version, commit: pins[name].ref ?? null }]));
 const smaltdb = versions.smaltdb;
 writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'packed', version: smaltdb.version, commit: smaltdb.commit, packages: versions }, null, 2) + '\n');
-console.log(`vendor/smaltdb: smaltdb@${smaltdb.version} (${smaltdb.commit?.slice(0, 7)}) with ${Object.keys(pins).filter((n) => n !== 'smaltdb').join(', ')}${notices.length ? `; notices for ${notices.length} third-party packages` : ''}`);
+console.log(`vendor/smaltdb: smaltdb@${smaltdb.version} (${smaltdb.commit?.slice(0, 7)}) with ${Object.keys(pins).filter((n) => n !== 'smaltdb' && n !== '@smaltworks/smaltdb-sucrase').join(', ')}${noticeCount ? `; notices for ${noticeCount} third-party packages` : ''}`);
+console.log(`vendor/smaltdb-sucrase: @smaltworks/smaltdb-sucrase@${versions['@smaltworks/smaltdb-sucrase'].version}; notices for ${tsNotices} third-party packages`);

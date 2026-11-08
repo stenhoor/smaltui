@@ -955,40 +955,24 @@ function insertIntoEditor(text: string): void {
 // An editor tab for TypeScript with smaltdf, beside the SQL tab: frames and expressions build plans, which run in the
 // engine worker against the open database. Ctrl+Enter runs the whole tab. Its last expression, and every value passed
 // to show(), is a result: frames are collected and shown as grids, writes report their row count, other values show as
-// text. The types are stripped by the TypeScript compiler, loaded at run time as smaltnb loads it (smaltnb DESIGN.md,
-// decision 21); smaltdf loads from vendor/smaltdf/. Both load on first use.
+// text. The types are stripped by the @smaltworks/smaltdb-sucrase plugin (sucrase), from vendor/smaltdb-sucrase/, and
+// smaltdf loads from vendor/smaltdf/. Both load on first use, from this site: nothing comes from another one.
 
 type DfModule = typeof Df;
-/** The TypeScript compiler, as much of it as the tab uses. */
-interface TypeScript {
-  transpileModule(code: string, options: object): { outputText: string };
-  createSourceFile: unknown;
-  ScriptTarget: { ES2022: number };
-  ModuleKind: { ESNext: number };
-}
-/** Where the TypeScript compiler is loaded from: the version smaltnb pins (smaltnb src/kernel.ts, TYPESCRIPT_URL). */
-const TYPESCRIPT_URL = 'https://cdn.jsdelivr.net/npm/typescript@5.9.3/lib/typescript.js';
-
-/** Fetches and evaluates the TypeScript compiler, as smaltnb's loadTypeScript does. */
-async function loadTypeScript(url: string = TYPESCRIPT_URL): Promise<TypeScript> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Couldn't load the TypeScript compiler from ${url}: HTTP ${res.status}.`);
-  const ts = new Function(`${await res.text()}\nreturn ts;`)() as TypeScript;
-  if (!ts || typeof ts.createSourceFile !== 'function') throw new Error('This file is not the TypeScript compiler (lib/typescript.js).');
-  return ts;
+/** The plugin that strips TypeScript types (stenhoor/smaltdb-sucrase), as bundled into vendor/smaltdb-sucrase/. */
+interface Transpiler {
+  transpile(code: string, options?: { filename?: string }): string;
 }
 
 let dfLoad: Promise<{ df: DfModule; transform: (code: string) => string }> | null = null;
 const loadDf = () =>
-  (dfLoad ??= Promise.all([import(/* @vite-ignore */ new URL('../vendor/smaltdf/smaltdf.js', import.meta.url).href) as Promise<DfModule>, loadTypeScript()])
-    .then(([df, ts]) => ({
-      df,
-      // Types stripped with smaltnb's options: ES2022, ES modules, each file on its own.
-      transform: (code: string) =>
-        ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, isolatedModules: true }, reportDiagnostics: false }).outputText,
-    }))
+  (dfLoad ??= Promise.all([
+    import(/* @vite-ignore */ new URL('../vendor/smaltdf/smaltdf.js', import.meta.url).href) as Promise<DfModule>,
+    import(/* @vite-ignore */ new URL('../vendor/smaltdb-sucrase/sucrase.js', import.meta.url).href) as Promise<Transpiler>,
+  ])
+    .then(([df, ts]) => ({ df, transform: (code: string) => ts.transpile(code) }))
     .catch((e) => {
-      dfLoad = null; // try again on the next run (the network may be back)
+      dfLoad = null; // try again on the next run
       throw e;
     }));
 let dfNames: { globals: string[]; members: string[] } = { globals: [], members: [] };

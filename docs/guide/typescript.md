@@ -27,8 +27,8 @@ lines.sort('amount', { descending: true }).head(10)
 
 smaltdf's functions (`table`, `col`, `lit`, `len`, `concat`, `update`, …) are in scope, with `db`, the open database.
 `import { … } from '@smaltdb/df'` works too, so code can be copied to and from a project. The code is TypeScript:
-its types are removed before it runs, not checked, by the TypeScript compiler (`typescript@5.9.3`, the version smaltnb
-uses). The compiler is loaded from jsDelivr the first time a tab runs, so the first run needs the network.
+its types are removed before it runs, not checked, by the `@smaltworks/smaltdb-sucrase` plugin (sucrase). It comes
+with the workbench and loads the first time a tab runs, so tabs work offline. A syntax error names its line and column.
 
 The editor highlights TypeScript and completes smaltdf's functions, the methods after a `.`, table names in
 `table('…')` and column names in `col('…')` (<kbd>Ctrl</kbd>+<kbd>Space</kbd>).
