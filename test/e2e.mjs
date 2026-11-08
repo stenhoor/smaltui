@@ -258,10 +258,8 @@ try {
     await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent === 'Analyze', null, { timeout: 20000 });
     const analyzed = await activePane().locator('.subpane.active thead').innerText();
     if (!/est_rows[\s\S]*rows/.test(analyzed)) throw new Error('analyze: ' + analyzed);
-    // Format (Prettier), and the formatted code still shows its last expression.
-    await activePane().locator('textarea.ed-input').fill("const n:number=2;table('products').sort('price').head(n)");
-    await activePane().locator('[data-format]').click();
-    await page.waitForFunction(() => document.querySelector('.pane.active textarea.ed-input').value.startsWith('const n: number = 2;\n'), null, { timeout: 20000 });
+    // Code ending with a semicolon still shows its last expression.
+    await activePane().locator('textarea.ed-input').fill("const n: number = 2;\ntable('products').sort('price').head(n);\n");
     await activePane().locator('[data-run]').click();
     await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent === 'Result2', null, { timeout: 20000 });
     // A new tab: TypeScript annotations are stripped, smaltdf can be imported explicitly.

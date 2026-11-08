@@ -40,10 +40,9 @@ database (schema, data, linked sources, saved queries) when it opens.
   - Syntax errors mark the failing token in the editor. `Esc` or **Stop** cancels a running statement.
   - Export results as CSV, JSON or INSERT statements, copy them as TSV, or save them as a new table.
 - **TypeScript tabs** (**ƒ TypeScript**): an editor for [smaltdf](https://stenhoor.github.io/smaltdf/), smaltdb's
-  dataframe language, beside the SQL tabs, with the same toolbar: Run, Explain, Analyze, Stop, Format, Open, Save.
+  dataframe language, beside the SQL tabs, with a SQL tab's toolbar: Run, Explain, Analyze, Stop, Open, Save (no Format yet).
   `Ctrl+Enter` runs the tab: its last expression and every `show(value)` are results (frames as grids); Explain and
-  Analyze show the engine's plan of its frame as for SQL, and Plan data the plan statement smaltdf sent. Format uses
-  Prettier. smaltdf's functions and `db` are in scope; types are stripped
+  Analyze show the engine's plan of its frame as for SQL, and Plan data the plan statement smaltdf sent. smaltdf's functions and `db` are in scope; types are stripped
   with sucrase. Kept with the tabs, saved as `.ts` files, and carried in manifests as queries with `"lang": "ts"`.
 - **Table viewer:** paged data with server-side sorting (click a header) and a free-form `WHERE` filter. Columns,
   indexes, constraints and highlighted DDL. For external tables it shows the source; for materialized views, refresh
@@ -251,7 +250,7 @@ app/globals.d.ts      File System Access API declarations missing from TypeScrip
 site/demo.ts          the live console
 (app|site)/*.js       compiled output (npm run compile; not committed)
 vendor/smaltdb/       engine: smaltdb, smaltql, smaltdf's language and plugins, bundled by npm run deps (not committed)
-vendor/smaltdf/       smaltdf, sucrase and Prettier for TypeScript tabs, bundled by npm run deps (not committed)
+vendor/smaltdf/       smaltdf and sucrase for TypeScript tabs, bundled by npm run deps (not committed)
 vendor/smaltkit/      shared modules (engine loader and OPFS catalog, data-URL rewriting, CORS hints), copied from node_modules/smaltkit on install (not committed)
 envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)

@@ -17,8 +17,8 @@ lines.sort('amount', { descending: true }).head(10)
 
 ## Running
 
-The toolbar is a SQL tab's: **Run**, **Explain**, **Analyze**, **Stop**, then **Format**, **Open…** and **Save**, with the
-same keys.
+The toolbar is a SQL tab's: **Run**, **Explain**, **Analyze**, **Stop**, then **Open…** and **Save**, with the same keys.
+(There is no Format for TypeScript yet.)
 
 - **Run** (<kbd>Ctrl</kbd>+<kbd>Enter</kbd>) runs the whole tab. Its last expression, and every value passed to
   `show(value, title?)`, is a result: frames are collected and shown as grids, writes (`update`, `deleteFrom`,
@@ -29,7 +29,6 @@ same keys.
 - **Plan data** is the plan statement smaltdf built and sent to the engine. smaltdf builds plans for the engine's plan
   layer; it doesn't write SQL.
 - **Stop** (<kbd>Esc</kbd>) cancels the query the engine is running.
-- **Format** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>) formats the code with Prettier.
 - **Messages:** how long it took, or the error.
 
 smaltdf's functions (`table`, `col`, `lit`, `len`, `concat`, `update`, …) are in scope, with `db`, the open database.

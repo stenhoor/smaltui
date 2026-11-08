@@ -352,7 +352,6 @@ interface TsTab extends TabBase {
   addResult(df: DfModule, v: unknown, title: string, sdb: Database): Promise<void>;
   stop(): void;
   setBusy(b: boolean): void;
-  format(): Promise<void>;
   renderResults(view?: string): void;
   save(): void;
   openFile(): void;
@@ -1023,7 +1022,7 @@ function tsTab(title: string, source: string): TsTab {
     busy: false,
     init() {
       const el = this.el;
-      // The same toolbar as a SQL tab: Run, Explain, Analyze, Stop | Format, Open, Save.
+      // A SQL tab's toolbar: Run, Explain, Analyze, Stop | Open, Save (no Format yet: no formatter is agreed for TypeScript).
       el.innerHTML = `
         <div class="toolbar">
           <button class="primary run-btn" data-run title="Run the tab (Ctrl+Enter)">▶ Run</button>
@@ -1031,7 +1030,6 @@ function tsTab(title: string, source: string): TsTab {
           <button data-analyze title="EXPLAIN ANALYZE: run the frame and show estimated vs actual rows per operator">Analyze</button>
           <button data-stop disabled title="Cancel the running query (Esc)">■ Stop</button>
           <span class="sep"></span>
-          <button class="ghost" data-format title="Format TypeScript (Ctrl+Shift+F)">Format</button>
           <button class="ghost" data-open title="Open a .ts file">Open…</button>
           <button class="ghost" data-save title="Save as .ts (Ctrl+S)">Save</button>
           <span class="grow"></span>
@@ -1056,7 +1054,6 @@ function tsTab(title: string, source: string): TsTab {
           'Shift+Mod+Enter': () => void this.run(),
           F5: () => void this.run(),
           'Mod+E': () => void this.run('plan'),
-          'Shift+Mod+F': () => void this.format(),
           'Mod+S': () => this.save(),
           Escape: () => this.stop(),
         },
@@ -1075,7 +1072,6 @@ function tsTab(title: string, source: string): TsTab {
       $('[data-explain]', el).onclick = () => void this.run('plan');
       $('[data-analyze]', el).onclick = () => void this.run('analyze');
       $('[data-stop]', el).onclick = () => this.stop();
-      $('[data-format]', el).onclick = () => void this.format();
       $('[data-save]', el).onclick = () => this.save();
       $('[data-open]', el).onclick = () => this.openFile();
       tsNames();
@@ -1188,14 +1184,6 @@ function tsTab(title: string, source: string): TsTab {
         this.texts.push({ title, text });
       }
     },
-    async format() {
-      try {
-        const out = await formatTs(this.editor.value);
-        if (out !== this.editor.value) this.editor.replaceAll(out);
-      } catch (e) {
-        toast(`Format: ${errText(e)}`, 'err');
-      }
-    },
     renderResults(view = 'messages') {
       const tabsEl = $('.subtabs', this.el);
       const panes = $('.subpanes', this.el);
@@ -1289,14 +1277,6 @@ function cancellable(target: Database, signal: AbortSignal): Database {
       return (v as (...x: unknown[]) => unknown).bind(t);
     },
   });
-}
-
-/** Prettier with its TypeScript parser, loaded from vendor/smaltdf/ on first use. */
-let prettierLoad: Promise<{ format(code: string, o: object): Promise<string>; plugins: unknown[] }> | null = null;
-async function formatTs(code: string): Promise<string> {
-  prettierLoad ??= import(/* @vite-ignore */ new URL('../vendor/smaltdf/prettier.js', import.meta.url).href) as Promise<{ format(code: string, o: object): Promise<string>; plugins: unknown[] }>;
-  const p = await prettierLoad;
-  return p.format(code, { parser: 'typescript', plugins: p.plugins, singleQuote: true, printWidth: 100 });
 }
 
 /** A Plan / Analyze result: the EXPLAIN tree when it has one, else a grid (both tabs show it this way). */

@@ -158,7 +158,7 @@ export function splitLastExpression(js: string): { body: string; expr: string | 
       lastWasSemicolon = t.text === ';';
     }
   }
-  // Code that ends with `;` (as Prettier writes it): the last statement is the one that semicolon ends.
+  // Code that ends with `;`: the last statement is the one that semicolon ends.
   if (!js.slice(lastEnd).trim() && lastWasSemicolon) lastEnd = prevEnd;
   let tail = js.slice(lastEnd);
   let body = js.slice(0, lastEnd);
