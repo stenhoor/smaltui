@@ -955,12 +955,42 @@ function insertIntoEditor(text: string): void {
 // An editor tab for TypeScript with smaltdf, beside the SQL tab: frames and expressions build plans, which run in the
 // engine worker against the open database. Ctrl+Enter runs the whole tab. Its last expression, and every value passed
 // to show(), is a result: frames are collected and shown as grids, writes report their row count, other values show as
-// text. The types are stripped by sucrase; smaltdf and sucrase load from vendor/smaltdf/ on first use.
+// text. The types are stripped by the TypeScript compiler, loaded at run time as smaltnb loads it (smaltnb DESIGN.md,
+// decision 21); smaltdf loads from vendor/smaltdf/. Both load on first use.
 
 type DfModule = typeof Df;
-let dfLoad: Promise<{ df: DfModule; transform: (code: string, o: object) => { code: string } }> | null = null;
+/** The TypeScript compiler, as much of it as the tab uses. */
+interface TypeScript {
+  transpileModule(code: string, options: object): { outputText: string };
+  createSourceFile: unknown;
+  ScriptTarget: { ES2022: number };
+  ModuleKind: { ESNext: number };
+}
+/** Where the TypeScript compiler is loaded from: the version smaltnb pins (smaltnb src/kernel.ts, TYPESCRIPT_URL). */
+const TYPESCRIPT_URL = 'https://cdn.jsdelivr.net/npm/typescript@5.9.3/lib/typescript.js';
+
+/** Fetches and evaluates the TypeScript compiler, as smaltnb's loadTypeScript does. */
+async function loadTypeScript(url: string = TYPESCRIPT_URL): Promise<TypeScript> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Couldn't load the TypeScript compiler from ${url}: HTTP ${res.status}.`);
+  const ts = new Function(`${await res.text()}\nreturn ts;`)() as TypeScript;
+  if (!ts || typeof ts.createSourceFile !== 'function') throw new Error('This file is not the TypeScript compiler (lib/typescript.js).');
+  return ts;
+}
+
+let dfLoad: Promise<{ df: DfModule; transform: (code: string) => string }> | null = null;
 const loadDf = () =>
-  (dfLoad ??= Promise.all([import(/* @vite-ignore */ new URL('../vendor/smaltdf/smaltdf.js', import.meta.url).href), import(/* @vite-ignore */ new URL('../vendor/smaltdf/sucrase.js', import.meta.url).href)]).then(([df, su]) => ({ df: df as DfModule, transform: su.transform })));
+  (dfLoad ??= Promise.all([import(/* @vite-ignore */ new URL('../vendor/smaltdf/smaltdf.js', import.meta.url).href) as Promise<DfModule>, loadTypeScript()])
+    .then(([df, ts]) => ({
+      df,
+      // Types stripped with smaltnb's options: ES2022, ES modules, each file on its own.
+      transform: (code: string) =>
+        ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, isolatedModules: true }, reportDiagnostics: false }).outputText,
+    }))
+    .catch((e) => {
+      dfLoad = null; // try again on the next run (the network may be back)
+      throw e;
+    }));
 let dfNames: { globals: string[]; members: string[] } = { globals: [], members: [] };
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...args: string[]) => (...a: unknown[]) => Promise<unknown>;
 
@@ -1091,7 +1121,7 @@ function tsTab(title: string, source: string): TsTab {
                 .join(' '),
         );
         if (/^[ \t]*import\s/m.test(src)) throw new Error("Only smaltdf can be imported in a TypeScript tab: import { … } from '@smaltdb/df'");
-        const js = transform(src, { transforms: ['typescript'], disableESTransforms: true }).code;
+        const js = transform(src);
         const { body, expr } = splitLastExpression(js);
         const shown: { value: unknown; title?: string }[] = [];
         const show = (value: unknown, title?: string) => void shown.push({ value, title });

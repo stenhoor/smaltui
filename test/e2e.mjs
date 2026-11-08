@@ -21,6 +21,17 @@ const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } })
 // The brand fonts come from Google Fonts; serve an empty stylesheet so tests run offline and deterministically
 // (the pages fall back to system fonts, as they would if Google Fonts were unreachable).
 await ctx.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+// TypeScript tabs load the TypeScript compiler from jsDelivr (typescript@5.9.3, as smaltnb does). Serve the same
+// version from node_modules, so the tests don't depend on the network; the deployed site loads it from jsDelivr.
+{
+  const { createRequire } = await import('node:module');
+  const req = createRequire(import.meta.url);
+  const tsVersion = req('typescript/package.json').version;
+  const tsBody = (await import('node:fs')).readFileSync(req.resolve('typescript/lib/typescript.js'), 'utf8');
+  await ctx.route(`https://cdn.jsdelivr.net/npm/typescript@${tsVersion}/lib/typescript.js`, (route) =>
+    route.fulfill({ status: 200, contentType: 'text/javascript', headers: { 'access-control-allow-origin': '*' }, body: tsBody }),
+  );
+}
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
