@@ -8,8 +8,9 @@
 //   VERSION.json         the pinned commits (packed.json) and package versions
 //   THIRD_PARTY_NOTICES.txt  the licences of third-party code in the bundles
 //
-// and vendor/smaltdf/, which TypeScript tabs load on first use: smaltdf.js (@smaltdb/df, smaltdf's frames and
-// expressions; it builds plans that run in the worker) and sucrase.js (sucrase, which strips the TypeScript types).
+// and vendor/smaltdf/smaltdf.js (@smaltdb/df, smaltdf's frames and expressions; it builds plans that run in the worker),
+// which TypeScript tabs load on first use. They strip types with the TypeScript compiler, loaded at run time from
+// jsDelivr as smaltnb loads it: nothing of it is bundled here.
 //
 // smaltdb has no language built in (smaltdb ADR 0015): the worker registers smaltql, and optional features are
 // plugins built into it (ADR 0012). None of these packages is on npm yet: packed.json pins each to a commit, and
@@ -52,16 +53,15 @@ mkdirSync(out, { recursive: true });
 const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning', metafile: true, absWorkingDir: root };
 const dfOut = join(root, 'vendor', 'smaltdf');
 rmSync(dfOut, { recursive: true, force: true });
-const [client, worker, df, ts] = await Promise.all([
+const [client, worker, df] = await Promise.all([
   build({ ...common, stdin: { contents: CLIENT, resolveDir: root, sourcefile: 'smaltdb-client.js' }, outfile: join(out, 'smaltdb.js') }),
   build({ ...common, stdin: { contents: WORKER, resolveDir: root, sourcefile: 'smaltdb-worker.js' }, outdir: out, entryNames: 'smaltdb-worker', splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
   build({ ...common, stdin: { contents: "export * from '@smaltdb/df';", resolveDir: root, sourcefile: 'smaltdf.js' }, outfile: join(dfOut, 'smaltdf.js') }),
-  build({ ...common, stdin: { contents: "export { transform } from 'sucrase';", resolveDir: root, sourcefile: 'sucrase.js' }, outfile: join(dfOut, 'sucrase.js') }),
 ]);
 
 // Notices: every package from node_modules in either bundle, other than the smaltdb family (MIT, ours).
 const packages = new Set();
-for (const r of [client, worker, df, ts]) {
+for (const r of [client, worker, df]) {
   for (const input of Object.keys(r.metafile.inputs)) {
     const m = /node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(input);
     if (m) packages.add(m[1]);

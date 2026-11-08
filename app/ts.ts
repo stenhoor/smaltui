@@ -145,13 +145,22 @@ export function splitLastExpression(js: string): { body: string; expr: string | 
   const toks = tokenizeTs(js);
   let depth = 0;
   let lastEnd = 0; // where the last top-level statement starts
+  let prevEnd = 0; // and the one before it
+  let lastWasSemicolon = false;
   for (let k = 0; k < toks.length; k++) {
     const t = toks[k];
     if (t.type !== 'punct') continue;
     if ('([{'.includes(t.text)) depth++;
     else if (')]}'.includes(t.text)) depth = Math.max(0, depth - 1);
-    if (depth === 0 && (t.text === ';' || (t.text === '}' && endsBlockStatement(toks, k)))) lastEnd = t.end;
+    if (depth === 0 && (t.text === ';' || (t.text === '}' && endsBlockStatement(toks, k)))) {
+      prevEnd = lastEnd;
+      lastEnd = t.end;
+      lastWasSemicolon = t.text === ';';
+    }
   }
+  // Code that ends with `;` (the TypeScript compiler ends every statement with one): the last statement is the one that
+  // semicolon ends.
+  if (!js.slice(lastEnd).trim() && lastWasSemicolon) lastEnd = prevEnd;
   let tail = js.slice(lastEnd);
   let body = js.slice(0, lastEnd);
   // A statement on its own line after an expression without a semicolon: split at the last top-level line break
