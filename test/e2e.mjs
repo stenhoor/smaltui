@@ -245,10 +245,25 @@ try {
     await page.keyboard.press('Control+Enter');
     await page.waitForFunction(() => [...document.querySelectorAll('.pane.active .subtab')].some((b) => b.textContent.startsWith('Result')), null, { timeout: 20000 });
     const tabs = await page.evaluate(() => [...document.querySelectorAll('.pane.active .subtab')].map((b) => b.textContent));
-    if (!tabs.includes('By category4') || !tabs.includes('Result10') || !tabs.includes('Plan')) throw new Error(JSON.stringify(tabs));
+    if (!tabs.includes('By category4') || !tabs.includes('Result10') || !tabs.includes('Plan data')) throw new Error(JSON.stringify(tabs));
     await activePane().locator('.subtab', { hasText: 'By category' }).click();
     const cat = await activePane().locator('.subpane.active tbody').innerText();
     if (!/Gear\s+14798\s+215/.test(cat)) throw new Error(cat);
+    // Explain and Analyze, as in a SQL tab: the engine's plan of the tab's frame.
+    await activePane().locator('[data-explain]').click();
+    await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent === 'Plan', null, { timeout: 20000 });
+    const tree = await activePane().locator('.subpane.active .plan').innerText();
+    if (!/QUERY PLAN[\s\S]*HASH JOIN[\s\S]*SCAN orders/.test(tree)) throw new Error('explain: ' + tree);
+    await activePane().locator('[data-analyze]').click();
+    await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent === 'Analyze', null, { timeout: 20000 });
+    const analyzed = await activePane().locator('.subpane.active thead').innerText();
+    if (!/est_rows[\s\S]*rows/.test(analyzed)) throw new Error('analyze: ' + analyzed);
+    // Format (Prettier), and the formatted code still shows its last expression.
+    await activePane().locator('textarea.ed-input').fill("const n:number=2;table('products').sort('price').head(n)");
+    await activePane().locator('[data-format]').click();
+    await page.waitForFunction(() => document.querySelector('.pane.active textarea.ed-input').value.startsWith('const n: number = 2;\n'), null, { timeout: 20000 });
+    await activePane().locator('[data-run]').click();
+    await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent === 'Result2', null, { timeout: 20000 });
     // A new tab: TypeScript annotations are stripped, smaltdf can be imported explicitly.
     await page.locator('#btnNewTs').click();
     await activePane().locator('textarea.ed-input').fill("import { table, col } from '@smaltdb/df';\nconst min: number = 10;\ntable('products').filter(col('price').gt(min)).select('name', 'price').sort('price')");

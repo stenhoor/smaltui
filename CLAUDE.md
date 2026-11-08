@@ -72,7 +72,7 @@ npm install --no-save playwright && npx playwright install --with-deps chromium
   them a set that smaltdb's own `packed.json` has tested), and `scripts/vendor-smaltdb.mjs` builds the worker that
   registers them. It also pins smaltdf (`@smaltdb/df`), the dataframe language for TypeScript tabs: smaltdf builds
   plans for the engine's plan layer (never SQL), the worker registers its language (`dfLanguage`, for its views), and
-  `vendor/smaltdf/` holds smaltdf and sucrase (which strips the types) for the tab. smaltdb's pin follows smaltdf's. Move the pins deliberately, in their own PR, and run `npm test`.
+  `vendor/smaltdf/` holds smaltdf, sucrase (which strips the types) and Prettier (Format) for the tab. smaltdb's pin follows smaltdf's. Move the pins deliberately, in their own PR, and run `npm test`.
 - **smalt-brand:** logos, badges, colours, type and voice come from
   [stenhoor/smalt-brand](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md). Change assets there and sync
   `brand/`. Build colours from its tokens (`--primary`, `--text-2`, `--syn-*`, …), never hand-picked hex values, and
