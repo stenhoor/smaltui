@@ -965,22 +965,20 @@ function insertIntoEditor(text: string): void {
 // An editor tab for TypeScript with smaltdf, beside the SQL tab: frames and expressions build plans, which run in the
 // engine worker against the open database. Ctrl+Enter runs the whole tab. Its last expression, and every value passed
 // to show(), is a result: frames are collected and shown as grids, writes report their row count, other values show as
-// text. The types are stripped by the @smaltworks/smaltdb-sucrase plugin (sucrase), from vendor/smaltdb-sucrase/, and
-// smaltdf loads from vendor/smaltdf/. Both load on first use, from this site: nothing comes from another one.
+// text. The types are stripped by smaltkit/typescript (smaltty, from vendor/smaltkit/), which replaces them with
+// spaces, so an error's line and column are the ones written; smaltdf loads from vendor/smaltdf/. Both load on first
+// use, from this site: nothing comes from another one.
 
 type DfModule = typeof Df;
-/** The plugin that strips TypeScript types (stenhoor/smaltdb-sucrase), as bundled into vendor/smaltdb-sucrase/. */
-interface Transpiler {
-  transpile(code: string, options?: { filename?: string }): string;
-}
+type TypeScriptModule = typeof import('../vendor/smaltkit/typescript.js');
 
 let dfLoad: Promise<{ df: DfModule; transform: (code: string) => string }> | null = null;
 const loadDf = () =>
   (dfLoad ??= Promise.all([
     import(/* @vite-ignore */ new URL('../vendor/smaltdf/smaltdf.js', import.meta.url).href) as Promise<DfModule>,
-    import(/* @vite-ignore */ new URL('../vendor/smaltdb-sucrase/sucrase.js', import.meta.url).href) as Promise<Transpiler>,
+    import(/* @vite-ignore */ new URL('../vendor/smaltkit/typescript.js', import.meta.url).href) as Promise<TypeScriptModule>,
   ])
-    .then(([df, ts]) => ({ df, transform: (code: string) => ts.transpile(code) }))
+    .then(([df, ts]) => ({ df, transform: (code: string) => ts.stripTypes(code) }))
     .catch((e) => {
       dfLoad = null; // try again on the next run
       throw e;

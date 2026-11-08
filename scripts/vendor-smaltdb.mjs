@@ -8,12 +8,8 @@
 //   VERSION.json         the pinned commits (packed.json) and package versions
 //   THIRD_PARTY_NOTICES.txt  the licences of third-party code in the bundles
 //
-// and two folders TypeScript tabs load on first use:
-//
-//   vendor/smaltdf/smaltdf.js          @smaltdb/df, smaltdf's frames and expressions (it builds plans that run in the
-//                                      worker)
-//   vendor/smaltdb-sucrase/sucrase.js  @smaltworks/smaltdb-sucrase, the plugin that strips TypeScript types with
-//                                      sucrase, with its own THIRD_PARTY_NOTICES.txt
+// and vendor/smaltdf/smaltdf.js, @smaltdb/df, smaltdf's frames and expressions (it builds plans that run in the
+// worker), which TypeScript tabs load on first use. They strip types with smaltkit/typescript (vendor/smaltkit/).
 //
 // smaltdb has no language built in (smaltdb ADR 0015): the worker registers smaltql, and optional features are
 // plugins built into it (ADR 0012). None of these packages is on npm yet: packed.json pins each to a commit, and
@@ -55,18 +51,17 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning', metafile: true, absWorkingDir: root };
 const dfOut = join(root, 'vendor', 'smaltdf');
-const tsOut = join(root, 'vendor', 'smaltdb-sucrase');
 rmSync(dfOut, { recursive: true, force: true });
-rmSync(tsOut, { recursive: true, force: true });
-const [client, worker, df, ts] = await Promise.all([
+// TypeScript tabs used to strip types with a sucrase plugin bundled here; a copy left from before goes.
+rmSync(join(root, 'vendor', 'smaltdb-sucrase'), { recursive: true, force: true });
+const [client, worker, df] = await Promise.all([
   build({ ...common, stdin: { contents: CLIENT, resolveDir: root, sourcefile: 'smaltdb-client.js' }, outfile: join(out, 'smaltdb.js') }),
   build({ ...common, stdin: { contents: WORKER, resolveDir: root, sourcefile: 'smaltdb-worker.js' }, outdir: out, entryNames: 'smaltdb-worker', splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
   build({ ...common, stdin: { contents: "export * from '@smaltdb/df';", resolveDir: root, sourcefile: 'smaltdf.js' }, outfile: join(dfOut, 'smaltdf.js') }),
-  build({ ...common, stdin: { contents: "export { transpile } from '@smaltworks/smaltdb-sucrase';", resolveDir: root, sourcefile: 'sucrase.js' }, outfile: join(tsOut, 'sucrase.js') }),
 ]);
 
 // Notices: every package from node_modules in a folder's bundles, other than the smalt family (MIT, ours), written
-// into that folder. Packages a nested node_modules holds (sucrase's own dependencies) are found there.
+// into that folder. Packages a nested node_modules holds are found there.
 const ours = new Set([...Object.keys(pins), 'smaltkit']);
 function writeNotices(folder, results) {
   const packages = new Map();
@@ -88,10 +83,8 @@ function writeNotices(folder, results) {
   return notices.length;
 }
 const noticeCount = writeNotices(out, [client, worker, df]);
-const tsNotices = writeNotices(tsOut, [ts]);
 
 const versions = Object.fromEntries(Object.keys(pins).map((name) => [name, { version: JSON.parse(readFileSync(pkg(name), 'utf8')).version, commit: pins[name].ref ?? null }]));
 const smaltdb = versions.smaltdb;
 writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'packed', version: smaltdb.version, commit: smaltdb.commit, packages: versions }, null, 2) + '\n');
-console.log(`vendor/smaltdb: smaltdb@${smaltdb.version} (${smaltdb.commit?.slice(0, 7)}) with ${Object.keys(pins).filter((n) => n !== 'smaltdb' && n !== '@smaltworks/smaltdb-sucrase').join(', ')}${noticeCount ? `; notices for ${noticeCount} third-party packages` : ''}`);
-console.log(`vendor/smaltdb-sucrase: @smaltworks/smaltdb-sucrase@${versions['@smaltworks/smaltdb-sucrase'].version}; notices for ${tsNotices} third-party packages`);
+console.log(`vendor/smaltdb: smaltdb@${smaltdb.version} (${smaltdb.commit?.slice(0, 7)}) with ${Object.keys(pins).filter((n) => n !== 'smaltdb').join(', ')}${noticeCount ? `; notices for ${noticeCount} third-party packages` : ''}`);
