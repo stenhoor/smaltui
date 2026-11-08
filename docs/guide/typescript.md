@@ -17,18 +17,12 @@ lines.sort('amount', { descending: true }).head(10)
 
 ## Running
 
-The toolbar is a SQL tab's: **Run**, **Explain**, **Analyze**, **Stop**, then **Open…** and **Save**, with the same keys.
-(There is no Format for TypeScript yet.)
+<kbd>Ctrl</kbd>+<kbd>Enter</kbd> runs the whole tab. Its results:
 
-- **Run** (<kbd>Ctrl</kbd>+<kbd>Enter</kbd>) runs the whole tab. Its last expression, and every value passed to
-  `show(value, title?)`, is a result: frames are collected and shown as grids, writes (`update`, `deleteFrom`,
-  `insertInto`, `createTable`) report their row count, arrays of objects show as grids and other values as text.
-- **Explain** (<kbd>Ctrl</kbd>+<kbd>E</kbd>) and **Analyze** run the tab's frame (its last expression, or the last
-  frame shown) as EXPLAIN or EXPLAIN ANALYZE: **Plan** shows the engine's query plan, and **Analyze** estimated
-  against actual rows per operator, as they do for SQL.
-- **Plan data** is the plan statement smaltdf built and sent to the engine. smaltdf builds plans for the engine's plan
-  layer; it doesn't write SQL.
-- **Stop** (<kbd>Esc</kbd>) cancels the query the engine is running.
+- **The last expression**, and every value passed to `show(value, title?)`. Frames are collected and shown as grids,
+  writes (`update`, `deleteFrom`, `insertInto`, `createTable`) report their row count, arrays of objects show as
+  grids and other values as text.
+- **Plan:** the plan the last frame ran as. smaltdf builds plans for the engine's plan layer; it doesn't write SQL.
 - **Messages:** how long it took, or the error.
 
 smaltdf's functions (`table`, `col`, `lit`, `len`, `concat`, `update`, …) are in scope, with `db`, the open database.
