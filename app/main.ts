@@ -4,8 +4,10 @@ import { splitStatements, returnsRows, changesSchema, scanParams, quoteIdent, qu
 import { Editor, type EditorSchema, type SchemaTable } from './editor.js';
 import { Grid, formatValue, plainValue, exportRows, type Column, type ExportFormat, type Row, type SortDir, type Value } from './grid.js';
 import { normalizeDataUrl, corsHint } from '../vendor/smaltkit/urls.js';
+import { formatJson, formatTypeScript } from '../vendor/smaltkit/pretty.js';
 import { splitLastExpression } from './ts.js';
 import type * as Df from '@smaltdb/df';
+import type * as Smaltdb from 'smaltdb';
 import { icon, type IconName } from './icons.js';
 import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
 import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet, type DataFormat, type Manifest, type ReaderOptions } from './env.js';
@@ -340,10 +342,18 @@ interface TsTab extends TabBase {
   editor: Editor;
   results: { title: string; columns: string[]; rows: Row[]; ms: number }[];
   texts: { title: string; text: string }[];
-  plan: string | null;
+  /** The plan statement smaltdf built for the last frame (Plan data). */
+  planData: string | null;
+  format(): void;
+  /** EXPLAIN / EXPLAIN ANALYZE of the tab's frame (Plan / Analyze), as a SQL tab shows it. */
+  plan: PlanResult | null;
   messages: Message[];
   grids: Grid[];
-  run(): Promise<void>;
+  abort?: AbortController;
+  run(mode?: 'run' | 'plan' | 'analyze'): Promise<void>;
+  addResult(df: DfModule, v: unknown, title: string, sdb: Database): Promise<void>;
+  stop(): void;
+  setBusy(b: boolean): void;
   renderResults(view?: string): void;
   save(): void;
   openFile(): void;
@@ -1037,16 +1047,22 @@ function tsTab(title: string, source: string): TsTab {
     editor: assignedInInit<Editor>(),
     results: [],
     texts: [],
+    planData: null,
     plan: null,
     messages: [],
     grids: [],
     busy: false,
     init() {
       const el = this.el;
+      // A SQL tab's toolbar: Run, Explain, Analyze, Stop | Format, Open, Save.
       el.innerHTML = `
         <div class="toolbar">
           <button class="primary run-btn" data-run title="Run the tab (Ctrl+Enter)">▶ Run</button>
+          <button data-explain title="Show the query plan of the tab's frame (Ctrl+E)">Explain</button>
+          <button data-analyze title="EXPLAIN ANALYZE: run the frame and show estimated vs actual rows per operator">Analyze</button>
+          <button data-stop disabled title="Cancel the running query (Esc)">■ Stop</button>
           <span class="sep"></span>
+          <button class="ghost" data-format title="Format TypeScript: re-indent the tab's code (Ctrl+Shift+F)">Format</button>
           <button class="ghost" data-open title="Open a .ts file">Open…</button>
           <button class="ghost" data-save title="Save as .ts (Ctrl+S)">Save</button>
           <span class="grow"></span>
@@ -1066,7 +1082,15 @@ function tsTab(title: string, source: string): TsTab {
         tsNames,
         schema: () => app.schema,
         onChange: debounce(() => saveQueryTabs(), 400),
-        keys: { 'Mod+Enter': () => void this.run(), 'Shift+Mod+Enter': () => void this.run(), F5: () => void this.run(), 'Mod+S': () => this.save() },
+        keys: {
+          'Mod+Enter': () => void this.run(),
+          'Shift+Mod+Enter': () => void this.run(),
+          F5: () => void this.run(),
+          'Mod+E': () => void this.run('plan'),
+          'Shift+Mod+F': () => this.format(),
+          'Mod+S': () => this.save(),
+          Escape: () => this.stop(),
+        },
       });
       const split = $('.qsplit', el);
       split.style.setProperty('--ed-h', prefs.get('editorHeight', '42%'));
@@ -1079,6 +1103,10 @@ function tsTab(title: string, source: string): TsTab {
         () => prefs.set('editorHeight', split.style.getPropertyValue('--ed-h')),
       );
       $('[data-run]', el).onclick = () => void this.run();
+      $('[data-explain]', el).onclick = () => void this.run('plan');
+      $('[data-analyze]', el).onclick = () => void this.run('analyze');
+      $('[data-stop]', el).onclick = () => this.stop();
+      $('[data-format]', el).onclick = () => this.format();
       $('[data-save]', el).onclick = () => this.save();
       $('[data-open]', el).onclick = () => this.openFile();
       tsNames();
@@ -1094,18 +1122,34 @@ function tsTab(title: string, source: string): TsTab {
     onSchema() {
       this.editor.render();
     },
-    async run() {
-      if (this.busy || !app.db) return;
-      this.busy = true;
+    stop() {
+      this.abort?.abort();
+    },
+    setBusy(b: boolean) {
+      this.busy = b;
+      for (const sel of ['[data-run]', '[data-explain]', '[data-analyze]']) $(sel, this.el).disabled = b;
+      $('[data-stop]', this.el).disabled = !b;
+      setDbIndicator(b ? 'busy' : 'on', app.dbName, app.storage);
       renderTabs();
-      $('[data-run]', this.el).disabled = true;
+    },
+    /**
+     * Run the tab. With mode 'plan' or 'analyze', the tab's frame (its last expression, or the last value shown) is not
+     * collected: its plan runs as EXPLAIN (or EXPLAIN ANALYZE), and the result shows as a SQL tab's does.
+     */
+    async run(mode: 'run' | 'plan' | 'analyze' = 'run') {
+      if (this.busy) return;
+      if (!app.db) return void toast('No database is open', 'err');
+      this.abort = new AbortController();
+      const signal = this.abort.signal;
+      this.setBusy(true);
       const t0 = now();
       const code = this.editor.value;
       saveQueryTabs();
       this.results = [];
       this.texts = [];
+      this.planData = null;
       this.plan = null;
-      const at = new Date().toLocaleTimeString();
+      const at = timeOfDay();
       try {
         const { df, transform } = await loadDf();
         // smaltdf's names are in scope already, so `import { … } from '@smaltdb/df'` is optional: a plain import is
@@ -1126,33 +1170,44 @@ function tsTab(title: string, source: string): TsTab {
         const shown: { value: unknown; title?: string }[] = [];
         const show = (value: unknown, title?: string) => void shown.push({ value, title });
         const names = Object.keys(df).filter((n) => /^[A-Za-z_$][\w$]*$/.test(n) && !['db', 'show'].includes(n));
+        const sdb = cancellable(db(), signal);
         const fn = new AsyncFunction('__df', 'db', 'show', ...names, `${body}\n${expr ? `return (${expr});` : ''}`);
-        const value = await fn(df, db(), show, ...names.map((n) => (df as Record<string, unknown>)[n]));
+        const value = await fn(df, sdb, show, ...names.map((n) => (df as Record<string, unknown>)[n]));
         if (expr) shown.push({ value, title: 'Result' });
-        for (const [i, { value: v, title: t }] of shown.entries()) await this.addResult(df, v, t ?? `Shown ${i + 1}`);
-        const ms = now() - t0;
-        const what = this.results.length ? `${this.results.length} result${this.results.length === 1 ? '' : 's'}` : this.texts.length ? 'done' : 'done, no value';
-        this.messages.unshift({ kind: 'ok', text: `${what} in ${fmtMs(ms)}`, sql: code, at });
-        status(`TypeScript: ${what} in ${fmtMs(ms)}`);
-        addHistory({ sql: `// TypeScript\n${code}`, db: app.dbName, at: Date.now(), ms });
+        if (mode !== 'run') {
+          const frame = [...shown].reverse().find((x) => x.value instanceof df.Frame)?.value as Df.Frame | undefined;
+          if (!frame) throw new Error(`${mode === 'plan' ? 'Explain' : 'Analyze'} needs a frame: end the tab with one, or show() one`);
+          const stmt = (await frame.plan(sdb)) as { kind?: string };
+          this.planData = planJson(stmt);
+          if (stmt.kind !== 'query') throw new Error(`${mode === 'plan' ? 'Explain' : 'Analyze'} needs a query; this frame's plan is a ${stmt.kind ?? 'statement'}`);
+          const r = (await db().queryPlan({ kind: 'explain', mode, query: stmt } as Smaltdb.PlanStatementInput, [], { rowMode: 'array', signal })) as unknown as Row[] & { columns: string[] };
+          this.plan = { sql: code, rows: [...r], columns: r.columns, analyze: mode === 'analyze' };
+          this.messages.unshift({ kind: 'ok', text: `${mode === 'plan' ? 'Plan' : 'Analyze'} ready (${fmtMs(now() - t0)})`, sql: code, at });
+        } else {
+          for (const [i, { value: v, title: t }] of shown.entries()) await this.addResult(df, v, t ?? `Shown ${i + 1}`, sdb);
+          const ms = now() - t0;
+          const what = this.results.length ? `${this.results.length} result${this.results.length === 1 ? '' : 's'}` : this.texts.length ? 'done' : 'done, no value';
+          this.messages.unshift({ kind: 'ok', text: `${what} in ${fmtMs(ms)}`, sql: code, at });
+          status(`TypeScript: ${what} in ${fmtMs(ms)}`);
+        }
+        addHistory({ sql: `// TypeScript\n${code}`, db: app.dbName, at: Date.now(), ms: now() - t0 });
         await refreshSchema();
       } catch (e) {
-        this.messages.unshift({ kind: 'err', text: errText(e), sql: code, at });
-        status(errText(e), 'err');
+        const text = signal.aborted ? 'Cancelled' : errText(e);
+        this.messages.unshift({ kind: signal.aborted ? 'warn' : 'err', text, sql: code, at });
+        status(text, signal.aborted ? '' : 'err');
       } finally {
-        this.busy = false;
-        $('[data-run]', this.el).disabled = false;
-        renderTabs();
-        this.renderResults(this.results.length ? 'r0' : this.texts.length ? 't0' : 'messages');
+        this.setBusy(false);
+        this.renderResults(this.plan ? 'plan' : this.results.length ? 'r0' : this.texts.length ? 't0' : 'messages');
       }
     },
-    async addResult(df: DfModule, v: unknown, title: string) {
+    async addResult(df: DfModule, v: unknown, title: string, sdb: Database) {
       const t0 = now();
       if (v instanceof df.Frame) {
-        this.plan = JSON.stringify(await v.plan(db()), (_k, x) => (typeof x === 'bigint' ? x.toString() : x), 2);
-        v = await v.collect(db());
+        this.planData = planJson(await v.plan(sdb));
+        v = await v.collect(sdb);
       }
-      if (v instanceof df.Write) v = await v.run(db());
+      if (v instanceof df.Write) v = await v.run(sdb);
       if (v && typeof v === 'object' && Array.isArray((v as Df.DfResult).columns) && Array.isArray((v as Df.DfResult).rows)) {
         const r = v as Df.DfResult;
         this.results.push({ title, columns: r.columns, rows: r.rows.map((row) => row.map(toCell)), ms: now() - t0 });
@@ -1186,7 +1241,10 @@ function tsTab(title: string, source: string): TsTab {
         });
       });
       this.texts.forEach((t, i) => views.push({ key: 't' + i, label: t.title, build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = t.text) }));
-      if (this.plan) views.push({ key: 'plan', label: 'Plan', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.plan) });
+      // Plan / Analyze: the engine's EXPLAIN, shown as a SQL tab shows it.
+      if (this.plan) views.push({ key: 'plan', label: this.plan.analyze ? 'Analyze' : 'Plan', build: (pane) => planView(pane, this.plan!) });
+      // Plan data: the plan statement smaltdf built and sent to the engine.
+      if (this.planData) views.push({ key: 'plandata', label: 'Plan data', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.planData) });
       views.push({
         key: 'messages',
         label: 'Messages',
@@ -1196,7 +1254,7 @@ function tsTab(title: string, source: string): TsTab {
           const box = pane.appendChild(h('<div class="messages"></div>'));
           box.innerHTML = this.messages.length
             ? this.messages.map((m) => `<div class="msg ${m.kind}"><span class="t">${m.at}</span><div><span class="b">${esc(m.text)}</span></div></div>`).join('')
-            : `<div class="placeholder"><h3>Ready</h3>Write TypeScript with smaltdf above and press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run it.<br>The last expression is shown; <code>show(value)</code> shows more. <kbd>Ctrl</kbd>+<kbd>Space</kbd> completes names.</div>`;
+            : `<div class="placeholder"><h3>Ready</h3>Write TypeScript with smaltdf above and press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run it,<br>or <kbd>Ctrl</kbd>+<kbd>E</kbd> to explain its frame. The last expression is shown; <code>show(value)</code> shows more. <kbd>Ctrl</kbd>+<kbd>Space</kbd> completes names.</div>`;
         },
       });
       for (const v of views) {
@@ -1214,6 +1272,11 @@ function tsTab(title: string, source: string): TsTab {
       };
       show(views.some((v) => v.key === view) ? view : views[0].key);
     },
+    format() {
+      // The whole tab: a selection on its own would lose the depth of the code around it.
+      const text = formatTypeScript(this.editor.value);
+      if (text !== this.editor.value) this.editor.replaceAll(text);
+    },
     save() {
       download((this.title.replace(/[^\w.-]+/g, '_') || 'frames') + '.ts', this.editor.value, 'text/typescript');
     },
@@ -1229,8 +1292,41 @@ function tsTab(title: string, source: string): TsTab {
       };
       input.click();
     },
-  } as TsTab & { addResult(df: DfModule, v: unknown, title: string): Promise<void> };
+  } as TsTab;
   return tab;
+}
+
+/** The plan statement smaltdf built, as JSON laid out to read (short parts on one line; bigints as digits). */
+function planJson(stmt: unknown): string {
+  return formatJson(stmt, { width: 100 });
+}
+
+/**
+ * The database as a TypeScript tab's code sees it: every query and statement it sends carries the tab's cancel signal,
+ * so Stop (Esc) interrupts what the engine is running. smaltdf's collect() and run() take no signal of their own.
+ */
+function cancellable(target: Database, signal: AbortSignal): Database {
+  const withSignal = new Set(['query', 'queryPlan', 'stream', 'streamPlan', 'exec']);
+  return new Proxy(target, {
+    get(t, k, r) {
+      const v = Reflect.get(t, k, r);
+      if (typeof v !== 'function') return v;
+      if (typeof k === 'string' && withSignal.has(k)) {
+        return (a: unknown, params?: unknown, options: Record<string, unknown> = {}) => (v as (...x: unknown[]) => unknown).call(t, a, params, { ...options, signal });
+      }
+      return (v as (...x: unknown[]) => unknown).bind(t);
+    },
+  });
+}
+
+/** A Plan / Analyze result: the EXPLAIN tree when it has one, else a grid (both tabs show it this way). */
+function planView(pane: HTMLElement, p: PlanResult): void {
+  const cols = p.columns ?? [];
+  if (cols.includes('detail') && cols.includes('parent') && !p.analyze) {
+    pane.appendChild(h('<div class="plan"></div>')).textContent = planTree(p.rows, cols);
+  } else {
+    new Grid(pane.appendChild(h('<div class="grid"></div>'))).setData(cols, p.rows);
+  }
 }
 
 function toCell(v: unknown): Value {
@@ -1619,19 +1715,7 @@ function queryTab(title: string, sql: string): QueryTab {
         views.push({
           key: 'plan',
           label: this.plan.analyze ? 'Analyze' : 'Plan',
-          build: (pane) => {
-            const p = this.plan!;
-            const cols = p.columns ?? [];
-            if (cols.includes('detail') && cols.includes('parent') && !p.analyze) {
-              const box = h('<div class="plan"></div>');
-              box.textContent = planTree(p.rows, cols);
-              pane.appendChild(box);
-            } else {
-              const gh = h('<div class="grid"></div>');
-              pane.appendChild(gh);
-              new Grid(gh).setData(cols, p.rows);
-            }
-          },
+          build: (pane) => planView(pane, this.plan!),
         });
       }
       for (const v of views) {
@@ -2719,7 +2803,7 @@ function shortcutsDialog() {
     ['Esc', 'Cancel the running statement'],
     ['Ctrl+Space', 'Complete keywords, tables and columns'],
     ['Ctrl+/', 'Toggle line comments'],
-    ['Ctrl+Shift+F', 'Format SQL'],
+    ['Ctrl+Shift+F', 'Format SQL, or re-indent TypeScript'],
     ['Tab / Shift+Tab', 'Indent / outdent'],
     ['Ctrl+S', 'Save the editor as a .sql file'],
     ['Ctrl+Shift+N', 'New query tab'],
