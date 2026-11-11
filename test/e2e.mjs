@@ -119,6 +119,25 @@ try {
     if (!/"kind": "query"/.test(t) || !/"op": "scan"/.test(t) || !/"table": "people"/.test(t) || !/"name": "name"/.test(t)) throw new Error(t);
   });
 
+  await step('graph draws the plan data and the engine plan, with Analyze numbers', async () => {
+    await typeSql('SELECT name, age FROM people WHERE age > 40 ORDER BY age');
+    await page.keyboard.press('Control+e');
+    await activePane().locator('.subtab[data-view="graph"]').click({ timeout: 5000 });
+    const graphs = activePane().locator('[data-pane="graph"] .pg');
+    if ((await graphs.count()) !== 2) throw new Error('expected the engine plan and the plan data, got ' + (await graphs.count()));
+    const labels = await activePane().locator('[data-pane="graph"] .pg-label').allTextContents();
+    if (!labels.includes('scan') || !labels.includes('filter') || !labels.includes('sort')) throw new Error('plan data labels: ' + labels);
+    // Clicking an operator shows its details.
+    await activePane().locator('[data-pane="graph"] .pg-node').last().click();
+    const details = await activePane().locator('[data-pane="graph"] .pg-details').last().textContent();
+    if (!/scan|people/.test(details)) throw new Error('details: ' + details);
+    // Analyze: the costliest operators, row counts on the edges, boxes shaded by self time.
+    await activePane().locator('[data-analyze]').click();
+    await activePane().locator('.subtab[data-view="graph"]').click({ timeout: 10000 });
+    await activePane().locator('[data-pane="graph"] .pg-top li').first().waitFor({ timeout: 5000 });
+    if (!(await activePane().locator('[data-pane="graph"] .pg-edge-label').count())) throw new Error('no row counts on the edges');
+  });
+
   await step('large result fetches on demand', async () => {
     await typeSql('WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n WHERE x < 5000) SELECT x, x * x AS sq FROM n');
     await page.keyboard.press('Control+Enter');
@@ -277,6 +296,8 @@ try {
     await activePane().locator('.subtab', { hasText: 'Plan data' }).click();
     const planData = await activePane().locator('.subpane.active pre.plan').innerText();
     const parsed = JSON.parse(planData);
+    await activePane().locator('.subtab', { hasText: 'Graph' }).click();
+    if ((await activePane().locator('.subpane.active .pg').count()) < 1) throw new Error('TypeScript tab: no graph');
     if (!parsed || !/^\{\n {2}"/.test(planData) || !/\{ "[^\n]*\}/.test(planData)) throw new Error('plan data: ' + planData.slice(0, 400));
     // Format re-indents the tab's code, and the code still runs to the same result.
     const flat = "const big = table('products')\n.filter(col('price').gt(10))\n      .sort('price');\nif (big) {\nshow(big, 'Big')\n   }\nbig.head(3)";
