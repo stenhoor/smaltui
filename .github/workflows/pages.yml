@@ -48,5 +48,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-save playwright && npx playwright install --with-deps chromium
+      - run: scripts/install-chromium.sh   # retries the system packages, then installs Chromium without them
       - run: node test/smoke.mjs "${{ needs.deploy.outputs.page_url }}"

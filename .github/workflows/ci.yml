@@ -17,5 +17,5 @@ jobs:
       - run: npm run typecheck
       - name: brand/ matches stenhoor/smalt-brand at its pinned commit
         run: node scripts/sync-brand.mjs --check
-      - run: npm install --no-save playwright && npx playwright install --with-deps chromium
+      - run: scripts/install-chromium.sh   # retries the system packages, then installs Chromium without them
       - run: npm test
