@@ -246,6 +246,8 @@ interface QueryTab extends TabBase {
   messages: Message[];
   binds: Record<string, { v: string; t: string }>;
   plan: PlanResult | null;
+  /** The plan statement smaltql bound the last statement to and submitted to the engine (Plan data). */
+  planData: string | null;
   errorAt: number | null;
   grids: Grid[];
   abort?: AbortController;
@@ -1311,6 +1313,20 @@ function planJson(stmt: unknown): string {
 }
 
 /**
+ * The plan statement the database's language (SQL, smaltql) binds `sql` to, as JSON (smaltdb's `boundPlan`), or null
+ * when the engine has no `boundPlan` (an older smaltdb chosen with ?engine=) or the statement doesn't bind.
+ */
+async function boundPlanData(sql: string): Promise<string | null> {
+  const d = db() as Database & { boundPlan?: (text: string) => Promise<unknown> };
+  if (typeof d.boundPlan !== 'function') return null;
+  try {
+    return planJson(await d.boundPlan(sql));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The database as a TypeScript tab's code sees it: every query and statement it sends carries the tab's cancel signal,
  * so Stop (Esc) interrupts what the engine is running. smaltdf's collect() and run() take no signal of their own.
  */
@@ -1380,6 +1396,7 @@ function queryTab(title: string, sql: string): QueryTab {
     messages: [],
     binds: {},
     plan: null,
+    planData: null,
     errorAt: null,
     grids: [],
     busy: false,
@@ -1501,6 +1518,7 @@ function queryTab(title: string, sql: string): QueryTab {
       this.setBusy(true);
       this.results = [];
       this.plan = null;
+      this.planData = null;
       this.messages = [];
       this.errorAt = null;
       const scriptT0 = now();
@@ -1523,6 +1541,10 @@ function queryTab(title: string, sql: string): QueryTab {
           params = values;
         }
         const t0 = now();
+        // Plan data: the plan statement smaltql binds the last statement to, as it submits it to the engine. Bound before
+        // the statement runs (a CREATE TABLE binds only while the table doesn't exist yet); a statement that doesn't bind
+        // shows its error in Messages when it runs.
+        if (st === stmts[stmts.length - 1]) this.planData = await boundPlanData(st.sql);
         try {
           if (mode === 'plan') {
             const r = await db().query(sql, params, { rowMode: 'array', signal });
@@ -1727,6 +1749,8 @@ function queryTab(title: string, sql: string): QueryTab {
           build: (pane) => planView(pane, this.plan!),
         });
       }
+      // Plan data: the plan statement smaltql bound the last statement to and submitted to the engine.
+      if (this.planData) views.push({ key: 'plandata', label: 'Plan data', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.planData) });
       for (const v of views) {
         const b = h(`<button class="subtab${v.err ? ' err' : ''}" data-view="${v.key}">${esc(v.label)}${v.badge ? `<span class="badge">${esc(v.badge)}</span>` : ''}</button>`);
         const pane = h(`<div class="subpane" data-pane="${v.key}"></div>`);

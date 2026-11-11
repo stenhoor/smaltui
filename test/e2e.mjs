@@ -82,7 +82,8 @@ try {
     await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent.startsWith('Result'), null, { timeout: 10000 });
     const cells = await activePane().locator('.grid-table tbody td[data-col="1"]').allTextContents();
     if (cells.join(',') !== 'Ada,Alan,Grace') throw new Error('unexpected rows ' + cells);
-    if (!(await page.locator('#tree [data-obj="people"]').count())) throw new Error('tree not refreshed');
+    // The tree refreshes after the script, asynchronously: wait for it rather than look once.
+    await page.locator('#tree [data-obj="people"]').first().waitFor({ timeout: 5000 }).catch(() => { throw new Error('tree not refreshed'); });
   });
   await shot('02-query');
 
@@ -104,9 +105,18 @@ try {
   await step('explain shows a plan', async () => {
     await typeSql('SELECT * FROM people WHERE id = 2');
     await page.keyboard.press('Control+e');
-    await activePane().locator('.plan').waitFor({ timeout: 5000 });
-    const t = await activePane().locator('.plan').textContent();
+    await activePane().locator('[data-pane="plan"] .plan').waitFor({ timeout: 5000 });
+    const t = await activePane().locator('[data-pane="plan"] .plan').textContent();
     if (!/QUERY PLAN/.test(t)) throw new Error(t);
+  });
+
+  await step('plan data shows the plan smaltql submits', async () => {
+    await typeSql('SELECT name FROM people WHERE id = 2');
+    await page.keyboard.press('Control+Enter');
+    await activePane().locator('.subtab[data-view="plandata"]').click({ timeout: 5000 });
+    const t = await activePane().locator('[data-pane="plandata"] .plan').textContent();
+    // A query with its plan (a scan of people under a filter and a projection) and its result column.
+    if (!/"kind": "query"/.test(t) || !/"op": "scan"/.test(t) || !/"table": "people"/.test(t) || !/"name": "name"/.test(t)) throw new Error(t);
   });
 
   await step('large result fetches on demand', async () => {
