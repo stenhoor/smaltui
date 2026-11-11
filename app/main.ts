@@ -9,7 +9,6 @@ import { splitLastExpression } from './ts.js';
 import type * as Df from '@smaltdb/df';
 import type * as Smaltdb from 'smaltdb';
 import { icon, type IconName } from './icons.js';
-import { drawPlanGraph, planDataTree, queryPlanTree } from './plangraph.js';
 import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
 import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet, type DataFormat, type Manifest, type ReaderOptions } from './env.js';
 
@@ -1257,8 +1256,6 @@ function tsTab(title: string, source: string): TsTab {
       if (this.plan) views.push({ key: 'plan', label: this.plan.analyze ? 'Analyze' : 'Plan', build: (pane) => planView(pane, this.plan!) });
       // Plan data: the plan statement smaltdf built and sent to the engine.
       if (this.planData) views.push({ key: 'plandata', label: 'Plan data', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.planData) });
-      // Graph: the frame's plan data and the engine's plan drawn as trees, with the Analyze numbers on the engine's.
-      if (this.planData || this.plan) views.push({ key: 'graph', label: 'Graph', build: (pane) => graphView(pane, this.planData, this.plan, 'smaltdf') });
       views.push({
         key: 'messages',
         label: 'Messages',
@@ -1348,19 +1345,6 @@ function cancellable(target: Database, signal: AbortSignal): Database {
 }
 
 /** A Plan / Analyze result: the EXPLAIN tree when it has one, else a grid (both tabs show it this way). */
-/**
- * The Graph view: the plan data the language submitted, and the engine's query plan (with Explain or Analyze), each
- * drawn as a tree (app/plangraph.ts). Analyze puts rows, self time and estimate misses on the engine's tree.
- */
-function graphView(pane: HTMLElement, planData: string | null, plan: PlanResult | null, language: string): void {
-  pane.classList.add('graph-pane');
-  const engine = plan ? queryPlanTree(plan.rows as unknown[][], plan.columns) : null;
-  if (engine) drawPlanGraph(pane, engine, plan!.analyze ? 'Analyze: how the engine ran it' : 'Query plan: how the engine runs it');
-  const data = planData ? planDataTree(planData) : null;
-  if (data) drawPlanGraph(pane, data, `Plan data: what ${language} submitted to the engine`);
-  if (!engine && !data) pane.appendChild(h('<div class="placeholder">No plan to draw for this statement.</div>'));
-}
-
 function planView(pane: HTMLElement, p: PlanResult): void {
   const cols = p.columns ?? [];
   if (cols.includes('detail') && cols.includes('parent') && !p.analyze) {
@@ -1767,8 +1751,6 @@ function queryTab(title: string, sql: string): QueryTab {
       }
       // Plan data: the plan statement smaltql bound the last statement to and submitted to the engine.
       if (this.planData) views.push({ key: 'plandata', label: 'Plan data', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.planData) });
-      // Graph: the plan data and the engine's plan drawn as trees, with the Analyze numbers on the engine's.
-      if (this.planData || this.plan) views.push({ key: 'graph', label: 'Graph', build: (pane) => graphView(pane, this.planData, this.plan, 'smaltql') });
       for (const v of views) {
         const b = h(`<button class="subtab${v.err ? ' err' : ''}" data-view="${v.key}">${esc(v.label)}${v.badge ? `<span class="badge">${esc(v.badge)}</span>` : ''}</button>`);
         const pane = h(`<div class="subpane" data-pane="${v.key}"></div>`);
