@@ -82,7 +82,8 @@ try {
     await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent.startsWith('Result'), null, { timeout: 10000 });
     const cells = await activePane().locator('.grid-table tbody td[data-col="1"]').allTextContents();
     if (cells.join(',') !== 'Ada,Alan,Grace') throw new Error('unexpected rows ' + cells);
-    if (!(await page.locator('#tree [data-obj="people"]').count())) throw new Error('tree not refreshed');
+    // The tree refreshes after the script, asynchronously: wait for it rather than look once.
+    await page.locator('#tree [data-obj="people"]').first().waitFor({ timeout: 5000 }).catch(() => { throw new Error('tree not refreshed'); });
   });
   await shot('02-query');
 

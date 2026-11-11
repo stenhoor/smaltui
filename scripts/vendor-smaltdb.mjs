@@ -41,7 +41,7 @@ export { registerFile, registerCredentials } from '@smaltdb/external/client';
 `;
 const WORKER = `
 import { defineWorker } from 'smaltdb/worker-runtime';
-import { sqlLanguage } from 'smaltql';
+import { sqlLanguage } from '@smaltworks/smaltql';
 import { dfLanguage } from '@smaltdb/df';
 import io from '@smaltdb/io';
 import external from '@smaltdb/external';
