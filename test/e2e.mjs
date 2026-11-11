@@ -120,7 +120,7 @@ try {
   });
 
   await step('graph draws the plan data and the engine plan, with Analyze numbers', async () => {
-    await typeSql('SELECT name, age FROM people WHERE age > 40 ORDER BY age');
+    await typeSql('SELECT name, age FROM people WHERE age > 40 ORDER BY age LIMIT 3');
     await page.keyboard.press('Control+e');
     await activePane().locator('.subtab[data-view="graph"]').click({ timeout: 5000 });
     const graphs = activePane().locator('[data-pane="graph"] .pg');
@@ -138,6 +138,9 @@ try {
     if (!(await activePane().locator('[data-pane="graph"] .pg-edge-label').count())) throw new Error('no row counts on the edges');
     // Every operator box carries its Analyze figures: rows (and the estimate), loops, self and total time.
     const figs = await activePane().locator('[data-pane="graph"] .pg-fig').allTextContents();
+    // Operators without detail keep their names in the bundled worker (LIMIT, not a minified class name).
+    const analyzed = await activePane().locator('[data-pane="graph"] .pg-label').allTextContents();
+    if (!analyzed.includes('LIMIT')) throw new Error('analyze labels: ' + analyzed);
     if (!figs.some((f) => /^rows \d/.test(f) && /loops \d/.test(f)) || !figs.some((f) => /ms self \(\d+%\) · .* ms total/.test(f))) throw new Error('figures: ' + figs);
   });
 
