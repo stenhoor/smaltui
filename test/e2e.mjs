@@ -105,12 +105,9 @@ try {
   await step('explain shows a plan', async () => {
     await typeSql('SELECT * FROM people WHERE id = 2');
     await page.keyboard.press('Control+e');
-    await activePane().locator('[data-pane="plan"] .plan:not(.plan-data)').waitFor({ timeout: 5000 });
-    const t = await activePane().locator('[data-pane="plan"] .plan:not(.plan-data)').textContent();
+    await activePane().locator('[data-pane="plan"] .plan').waitFor({ timeout: 5000 });
+    const t = await activePane().locator('[data-pane="plan"] .plan').textContent();
     if (!/QUERY PLAN/.test(t)) throw new Error(t);
-    // Under it, the plan statement smaltql submitted (Plan data), so Explain shows both.
-    const d = await activePane().locator('[data-pane="plan"] .plan-data').textContent();
-    if (!/"kind": "query"/.test(d) || !/"table": "people"/.test(d)) throw new Error(d);
   });
 
   await step('plan data shows the plan smaltql submits', async () => {
@@ -270,15 +267,15 @@ try {
     // Explain and Analyze, as in a SQL tab: the engine's plan of the tab's frame.
     await activePane().locator('[data-explain]').click();
     await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent === 'Plan', null, { timeout: 20000 });
-    const tree = await activePane().locator('.subpane.active .plan:not(.plan-data)').innerText();
+    const tree = await activePane().locator('.subpane.active .plan').innerText();
     if (!/QUERY PLAN[\s\S]*HASH JOIN[\s\S]*SCAN orders/.test(tree)) throw new Error('explain: ' + tree);
     await activePane().locator('[data-analyze]').click();
     await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent === 'Analyze', null, { timeout: 20000 });
     const analyzed = await activePane().locator('.subpane.active thead').innerText();
     if (!/est_rows[\s\S]*rows/.test(analyzed)) throw new Error('analyze: ' + analyzed);
-    // Plan data: the plan statement smaltdf sent, under the plan in the same pane, laid out by smaltkit/pretty (short
-    // parts kept on one line).
-    const planData = await activePane().locator('.subpane.active pre.plan-data').innerText();
+    // Plan data: the plan statement smaltdf sent, laid out by smaltkit/pretty (short parts kept on one line).
+    await activePane().locator('.subtab', { hasText: 'Plan data' }).click();
+    const planData = await activePane().locator('.subpane.active pre.plan').innerText();
     const parsed = JSON.parse(planData);
     if (!parsed || !/^\{\n {2}"/.test(planData) || !/\{ "[^\n]*\}/.test(planData)) throw new Error('plan data: ' + planData.slice(0, 400));
     // Format re-indents the tab's code, and the code still runs to the same result.
