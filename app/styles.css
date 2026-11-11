@@ -192,6 +192,31 @@ input:focus, select:focus, textarea.plain:focus { border-color: var(--primary); 
 .msg.warn .b { color: var(--warning); }
 .msg .sql { color: var(--muted); white-space: pre-wrap; display: block; max-height: 4.6em; overflow: hidden; }
 .plan { flex: 1; overflow: auto; padding: 12px; font: 12px/1.6 var(--mono); white-space: pre; }
+/* Plan graph (app/plangraph.ts): operator trees, with Analyze numbers. */
+.graph-pane { overflow: auto; padding: 4px 12px 16px; gap: 20px; }
+.pg { display: flex; flex-direction: column; gap: 8px; flex: none; }
+.pg-title, .pg-head { font: 600 11px/1.4 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); padding-top: 10px; }
+.pg-head { padding-top: 0; }
+.pg-top { margin: 0; padding: 0 0 0 20px; font: 12px/1.7 var(--sans); color: var(--text); }
+.pg-top li { cursor: pointer; }
+.pg-top li:hover { color: var(--link); }
+.pg-share { display: inline-block; min-width: 36px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pg-faint { color: var(--text-3); }
+.pg-body { display: flex; gap: 12px; align-items: flex-start; }
+.pg-scroll { overflow: auto; flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); max-height: 70vh; }
+.pg-svg { display: block; }
+.pg-node rect { stroke: var(--border-strong); stroke-width: 1.25; }
+.pg-node { cursor: pointer; outline: none; }
+.pg-node:hover rect, .pg-node:focus rect { stroke: var(--primary); }
+.pg-node.sel rect { stroke: var(--primary); stroke-width: 2.5; }
+.pg-label { font: 600 12.5px var(--sans); fill: var(--text); }
+.pg-sub { font: 11.5px var(--mono); fill: var(--text-2); }
+.pg-edge { fill: none; stroke: color-mix(in srgb, var(--primary) 45%, var(--border)); stroke-linecap: round; }
+.pg-edge-label { font: 11px var(--sans); fill: var(--text-3); }
+.pg-arrowhead { fill: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.pg-flag path { fill: var(--warning); }
+.pg-details { flex: 0 0 300px; max-height: 70vh; overflow: auto; margin: 0; padding: 10px 12px; font: 11.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.pg-key { font: 11.5px var(--sans); color: var(--text-3); }
 .placeholder { margin: auto; color: var(--muted); text-align: center; padding: 24px; line-height: 1.7; }
 .placeholder h3 { color: var(--text); margin: 0 0 6px; font-size: 15px; }
 
