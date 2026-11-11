@@ -313,6 +313,41 @@ try {
   });
   await shot('06-typescript');
 
+  await step('TypeScript tab: type errors are warnings, marked as the code is typed, and the code still runs', async () => {
+    // Waits until the tab's current code has been checked (the pane records the code last checked).
+    const checked = () =>
+      page.waitForFunction(() => {
+        const pane = document.querySelector('.pane.active');
+        return pane?.dataset.checked !== undefined && pane.dataset.checked === pane.querySelector('textarea.ed-input')?.value;
+      }, null, { timeout: 15000 });
+    const mark = activePane().locator('.ed-hl mark.ed-warn');
+    // The demo's tab, as written: no warnings.
+    await page.locator('.tab', { hasText: 'Frames (smaltdf)' }).click();
+    await checked();
+    if (await mark.count()) throw new Error(`the demo tab has ${await mark.count()} warnings: ` + (await mark.first().getAttribute('title')));
+    // An argument too many: a warning on it and its line, and the tab still runs.
+    await page.locator('#btnNewTs').click();
+    await activePane().locator('textarea.ed-input').fill("const n: number = 3;\ntable('products').sort('price').head(n, 'extra')");
+    await checked();
+    if ((await mark.count()) !== 1 || (await mark.innerText()) !== "'extra'") throw new Error('warnings: ' + (await activePane().locator('.ed-hl').innerHTML()));
+    if ((await mark.getAttribute('title')) !== 'Expected 0-1 arguments, but got 2.') throw new Error('message: ' + (await mark.getAttribute('title')));
+    const line = await activePane().locator('.sk-ed-warnline').innerText();
+    if (line !== '2') throw new Error('gutter: ' + line);
+    await activePane().locator('[data-run]').click();
+    await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent === 'Result3', null, { timeout: 20000 });
+    // An edit clears the marks; fixed code has none.
+    await activePane().locator('textarea.ed-input').fill("table('products').sort('price').head(3)");
+    if (await mark.count()) throw new Error('marks kept after an edit');
+    await checked();
+    if (await mark.count()) throw new Error('warnings on fixed code');
+    // A misspelt method: tsc's message, with its suggestion.
+    await activePane().locator('textarea.ed-input').fill("table('products').sortt('price')");
+    await checked();
+    const title = await mark.getAttribute('title');
+    if (title !== "Property 'sortt' does not exist on type 'Frame'. Did you mean 'sort'?") throw new Error('misspelt: ' + title);
+  });
+  await shot('06b-typecheck');
+
   await step('export environment round-trips', async () => {
     const m = await page.evaluate(async () => {
       const { exportManifest } = await import('/app/env.js');

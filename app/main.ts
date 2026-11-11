@@ -983,6 +983,32 @@ const loadDf = () =>
       dfLoad = null; // try again on the next run
       throw e;
     }));
+// The type checker (smaltkit/typecheck, smaltty's checker in a worker): a tab's calls into smaltdf, checked against
+// smaltdf's declarations (vendor/smaltdf/types.json) as it is typed. Its errors are warnings, marked in the editor;
+// the tab still runs. Loaded on first use; where a worker can't start, tabs have no warnings.
+type TypeCheckModule = typeof import('../vendor/smaltkit/typecheck.js');
+let checkerLoad: Promise<{ check(code: string): Promise<{ start: number; end: number; message: string }[] | null> } | null> | null = null;
+const loadChecker = () =>
+  (checkerLoad ??= Promise.all([
+    import(/* @vite-ignore */ new URL('../vendor/smaltkit/typecheck.js', import.meta.url).href) as Promise<TypeCheckModule>,
+    fetch(new URL('../vendor/smaltdf/types.json', import.meta.url)).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`types.json: ${r.status}`)))),
+  ])
+    .then(([m, setup]) => m.typeCheckWorker(setup))
+    .catch(() => null));
+
+/** Checks a TypeScript tab's code and marks its warnings, if the code is still the same when the check is done. */
+function typeCheckTab(tab: TsTab): void {
+  const code = tab.editor.value;
+  loadChecker()
+    .then((checker) => checker?.check(code))
+    .then((warnings) => {
+      if (!warnings || tab.editor.value !== code) return;
+      tab.editor.setWarnings(warnings);
+      tab.el.dataset.checked = code; // the code last checked, for the tests
+    })
+    .catch(() => {}); // a checker that fails leaves the tab without warnings
+}
+
 let dfNames: { globals: string[]; members: string[] } = { globals: [], members: [] };
 const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...args: string[]) => (...a: unknown[]) => Promise<unknown>;
 
@@ -1063,7 +1089,7 @@ function tsTab(title: string, source: string): TsTab {
         language: 'ts',
         tsNames,
         schema: () => app.schema,
-        onChange: debounce(() => saveQueryTabs(), 400),
+        onChange: ((save, check) => () => (save(), check()))(debounce(() => saveQueryTabs(), 400), debounce(() => typeCheckTab(this), 300)),
         keys: {
           'Mod+Enter': () => void this.run(),
           'Shift+Mod+Enter': () => void this.run(),
@@ -1092,6 +1118,7 @@ function tsTab(title: string, source: string): TsTab {
       $('[data-save]', el).onclick = () => this.save();
       $('[data-open]', el).onclick = () => this.openFile();
       tsNames();
+      typeCheckTab(this);
       this.renderResults();
     },
     onShow() {
