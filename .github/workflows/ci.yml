@@ -17,5 +17,5 @@ jobs:
       - run: npm run typecheck
       - name: brand/ matches stenhoor/smalt-brand at its pinned commit
         run: node scripts/sync-brand.mjs --check
-      - run: scripts/install-chromium.sh   # retries the system packages, then installs Chromium without them
+      - run: scripts/install-chromium.sh   # Chromium, without its system packages if the Ubuntu archive is unreachable
       - run: npm test
