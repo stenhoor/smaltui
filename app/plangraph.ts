@@ -154,8 +154,10 @@ export function queryPlanTree(rows: readonly (readonly unknown[])[], columns: re
 
 // ------------------------------------------------------------------ drawing
 
-const BOX_W = 232;
+const BOX_W = 260;
+/** A box's height: two lines, or four with Analyze's figures. */
 const BOX_H = 48;
+const BOX_H_ANALYZE = 90;
 const GAP_X = 24;
 const GAP_Y = 44;
 const PAD = 20;
@@ -168,13 +170,13 @@ interface Placed {
 }
 
 /** Top-down tidy layout: leaves side by side, a parent centred over its children. */
-function layout(root: PlanNode): { placed: Placed[]; width: number; height: number } {
+function layout(root: PlanNode, boxH: number): { placed: Placed[]; width: number; height: number } {
   const placed: Placed[] = [];
   let nextLeft = PAD;
   let maxDepth = 0;
   const walk = (n: PlanNode, depth: number, parent: Placed | null): Placed => {
     maxDepth = Math.max(maxDepth, depth);
-    const p: Placed = { node: n, x: 0, y: PAD + depth * (BOX_H + GAP_Y), parent };
+    const p: Placed = { node: n, x: 0, y: PAD + depth * (boxH + GAP_Y), parent };
     placed.push(p);
     if (n.children.length === 0) {
       p.x = nextLeft;
@@ -186,7 +188,7 @@ function layout(root: PlanNode): { placed: Placed[]; width: number; height: numb
     return p;
   };
   walk(root, 0, null);
-  return { placed, width: nextLeft - GAP_X + PAD, height: PAD * 2 + (maxDepth + 1) * BOX_H + maxDepth * GAP_Y };
+  return { placed, width: nextLeft - GAP_X + PAD, height: PAD * 2 + (maxDepth + 1) * boxH + maxDepth * GAP_Y };
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -202,12 +204,13 @@ const offEstimate = (s: NonNullable<PlanNode['stats']>) => s.estRows !== null &&
  * box. `title` heads the graph.
  */
 export function drawPlanGraph(host: HTMLElement, root: PlanNode, title: string): void {
-  const { placed, width, height } = layout(root);
+  const analyzed = (function has(n: PlanNode): boolean { return !!n.stats || n.children.some(has); })(root);
+  const boxH = analyzed ? BOX_H_ANALYZE : BOX_H;
+  const { placed, width, height } = layout(root, boxH);
   const all = placed.map((p) => p.node);
-  const analyzed = all.some((n) => n.stats);
   const totalSelf = all.reduce((s, n) => s + (n.stats?.selfMs ?? 0), 0) || 1;
   const maxRows = Math.max(1, ...all.map((n) => n.stats?.rows ?? 0));
-  const edgeWidth = (n: PlanNode) => (n.stats ? 1.5 + 8 * Math.log10(1 + n.stats.rows) / Math.log10(1 + maxRows) : 1.5);
+  const edgeWidth = (n: PlanNode) => (n.stats ? 1.25 + 3 * Math.log10(1 + n.stats.rows) / Math.log10(1 + maxRows) : 1.25);
 
   const section = document.createElement('div');
   section.className = 'pg';
@@ -237,29 +240,34 @@ export function drawPlanGraph(host: HTMLElement, root: PlanNode, title: string):
     const x1 = p.x + BOX_W / 2;
     const y1 = p.y;
     const x2 = p.parent.x + BOX_W / 2;
-    const y2 = p.parent.y + BOX_H;
+    const y2 = p.parent.y + boxH;
     const my = (y1 + y2) / 2;
     const rows = p.node.stats ? `<title>${fmtRows(p.node.stats.rows)} rows</title>` : '';
-    parts.push(`<path class="pg-edge" d="M${x1} ${y1}C${x1} ${my} ${x2} ${my} ${x2} ${y2 + 4}" stroke-width="${edgeWidth(p.node).toFixed(1)}" marker-end="url(#pg-arrow)">${rows}</path>`);
-    if (p.node.stats) parts.push(`<text class="pg-edge-label" x="${x1 + 6}" y="${y1 - 8}">${fmtRows(p.node.stats.rows)}</text>`);
+    parts.push(`<path class="pg-edge" d="M${x1} ${y1}C${x1} ${my} ${x2} ${my} ${x2} ${y2 + 1}" stroke-width="${edgeWidth(p.node).toFixed(1)}" marker-end="url(#pg-arrow)">${rows}</path>`);
+    if (p.node.stats) parts.push(`<text class="pg-edge-label" x="${x1 + edgeWidth(p.node) / 2 + 6}" y="${y1 - 8}">${fmtRows(p.node.stats.rows)}</text>`);
   }
   // Boxes: filled by share of self time; a flag where rows miss the estimate 10x or more.
   placed.forEach((p, i) => {
     const s = p.node.stats;
     const share = s ? s.selfMs / totalSelf : 0;
     const fill = s ? `color-mix(in srgb, var(--danger) ${Math.round(6 + 60 * share)}%, var(--surface))` : 'var(--surface)';
-    const sub = s ? `${fmtMs(s.selfMs)} self · ${Math.round(100 * share)}%` : p.node.sub;
-    const flag = s && offEstimate(s) ? `<g class="pg-flag"><title>${fmtRows(s.rows)} rows, estimated ${fmtRows(s.estRows ?? 0)}</title><path d="M${p.x + BOX_W - 22} ${p.y + 6}l8 14h-16z"/></g>` : '';
+    const off = s ? offEstimate(s) : false;
+    const flag = off ? `<g class="pg-flag"><title>${fmtRows(s!.rows)} rows, estimated ${fmtRows(s!.estRows ?? 0)}</title><path d="M${p.x + BOX_W - 22} ${p.y + 6}l8 14h-16z"/></g>` : '';
+    // With Analyze, every box carries its figures: rows against the estimate, loops, its time and its share.
+    const figures = s
+      ? `<text class="pg-fig${off ? ' pg-off' : ''}" x="${p.x + 12}" y="${p.y + 58}">${esc(`rows ${s.rows.toLocaleString()}${s.estRows !== null ? ` · est ${s.estRows.toLocaleString()}` : ''} · loops ${s.loops}`)}</text>` +
+        `<text class="pg-fig" x="${p.x + 12}" y="${p.y + 76}">${esc(`${fmtMs(s.selfMs)} self (${Math.round(100 * share)}%) · ${fmtMs(s.totalMs)} total`)}</text>`
+      : '';
     parts.push(
       `<g class="pg-node" data-pg="${i}" tabindex="0"><title>${esc(p.node.label)}${p.node.sub ? `\n${esc(p.node.sub)}` : ''}</title>` +
-        `<rect x="${p.x}" y="${p.y}" width="${BOX_W}" height="${BOX_H}" rx="8" style="fill:${fill}"/>` +
-        `<text class="pg-label" x="${p.x + 12}" y="${p.y + 20}">${esc(clip(p.node.label, 30))}</text>` +
-        `<text class="pg-sub" x="${p.x + 12}" y="${p.y + 37}">${esc(clip(sub, 36))}</text>${flag}</g>`,
+        `<rect x="${p.x}" y="${p.y}" width="${BOX_W}" height="${boxH}" rx="8" style="fill:${fill}"/>` +
+        `<text class="pg-label" x="${p.x + 12}" y="${p.y + 20}">${esc(clip(p.node.label, 34))}</text>` +
+        `<text class="pg-sub" x="${p.x + 12}" y="${p.y + 37}">${esc(clip(p.node.sub, 40))}</text>${figures}${flag}</g>`,
     );
   });
   scroller.innerHTML =
     `<svg class="pg-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(title)}">` +
-    `<defs><marker id="pg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="pg-arrowhead"/></marker></defs>` +
+    `<defs><marker id="pg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="pg-arrowhead"/></marker></defs>` +
     parts.join('') +
     `</svg>`;
 

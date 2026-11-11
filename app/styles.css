@@ -211,7 +211,9 @@ input:focus, select:focus, textarea.plain:focus { border-color: var(--primary); 
 .pg-node.sel rect { stroke: var(--primary); stroke-width: 2.5; }
 .pg-label { font: 600 12.5px var(--sans); fill: var(--text); }
 .pg-sub { font: 11.5px var(--mono); fill: var(--text-2); }
-.pg-edge { fill: none; stroke: color-mix(in srgb, var(--primary) 45%, var(--border)); stroke-linecap: round; }
+.pg-fig { font: 11.5px var(--mono); fill: var(--text); font-variant-numeric: tabular-nums; }
+.pg-fig.pg-off { fill: var(--warning); font-weight: 600; }
+.pg-edge { fill: none; stroke: color-mix(in srgb, var(--primary) 45%, var(--border)); stroke-linecap: butt; }
 .pg-edge-label { font: 11px var(--sans); fill: var(--text-3); }
 .pg-arrowhead { fill: color-mix(in srgb, var(--primary) 45%, var(--border)); }
 .pg-flag path { fill: var(--warning); }

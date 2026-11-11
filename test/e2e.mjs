@@ -136,6 +136,9 @@ try {
     await activePane().locator('.subtab[data-view="graph"]').click({ timeout: 10000 });
     await activePane().locator('[data-pane="graph"] .pg-top li').first().waitFor({ timeout: 5000 });
     if (!(await activePane().locator('[data-pane="graph"] .pg-edge-label').count())) throw new Error('no row counts on the edges');
+    // Every operator box carries its Analyze figures: rows (and the estimate), loops, self and total time.
+    const figs = await activePane().locator('[data-pane="graph"] .pg-fig').allTextContents();
+    if (!figs.some((f) => /^rows \d/.test(f) && /loops \d/.test(f)) || !figs.some((f) => /ms self \(\d+%\) · .* ms total/.test(f))) throw new Error('figures: ' + figs);
   });
 
   await step('large result fetches on demand', async () => {
