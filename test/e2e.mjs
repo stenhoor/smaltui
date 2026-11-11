@@ -105,9 +105,18 @@ try {
   await step('explain shows a plan', async () => {
     await typeSql('SELECT * FROM people WHERE id = 2');
     await page.keyboard.press('Control+e');
-    await activePane().locator('.plan').waitFor({ timeout: 5000 });
-    const t = await activePane().locator('.plan').textContent();
+    await activePane().locator('[data-pane="plan"] .plan').waitFor({ timeout: 5000 });
+    const t = await activePane().locator('[data-pane="plan"] .plan').textContent();
     if (!/QUERY PLAN/.test(t)) throw new Error(t);
+  });
+
+  await step('plan data shows the plan smaltql submits', async () => {
+    await typeSql('SELECT name FROM people WHERE id = 2');
+    await page.keyboard.press('Control+Enter');
+    await activePane().locator('.subtab[data-view="plandata"]').click({ timeout: 5000 });
+    const t = await activePane().locator('[data-pane="plandata"] .plan').textContent();
+    // A query with its plan (a scan of people under a filter and a projection) and its result column.
+    if (!/"kind": "query"/.test(t) || !/"op": "scan"/.test(t) || !/"table": "people"/.test(t) || !/"name": "name"/.test(t)) throw new Error(t);
   });
 
   await step('large result fetches on demand', async () => {
