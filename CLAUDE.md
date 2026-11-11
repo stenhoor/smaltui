@@ -39,7 +39,7 @@ npm run brand:sync -- --ref <commit>   # update brand/ from stenhoor/smalt-brand
 Playwright is not a project dependency. CI installs it before `npm test`:
 
 ```bash
-npm install --no-save playwright && npx playwright install --with-deps chromium
+scripts/install-chromium.sh   # npm install --no-save playwright, then Chromium with its system packages (without them if the archive is unreachable)
 ```
 
 ## Repo map
