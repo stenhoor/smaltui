@@ -243,8 +243,15 @@ export function drawPlanGraph(host: HTMLElement, root: PlanNode, title: string):
     const y2 = p.parent.y + boxH;
     const my = (y1 + y2) / 2;
     const rows = p.node.stats ? `<title>${fmtRows(p.node.stats.rows)} rows</title>` : '';
-    parts.push(`<path class="pg-edge" d="M${x1} ${y1}C${x1} ${my} ${x2} ${my} ${x2} ${y2 + 1}" stroke-width="${edgeWidth(p.node).toFixed(1)}" marker-end="url(#pg-arrow)">${rows}</path>`);
-    if (p.node.stats) parts.push(`<text class="pg-edge-label" x="${x1 + edgeWidth(p.node) / 2 + 6}" y="${y1 - 8}">${fmtRows(p.node.stats.rows)}</text>`);
+    // The arrowhead is drawn, not a marker, so it stays a little wider than its edge at every width.
+    const w = edgeWidth(p.node);
+    const a = Math.max(7, 2 * w + 2);
+    const tip = y2 + 1;
+    parts.push(`<path class="pg-edge" d="M${x1} ${y1}C${x1} ${my} ${x2} ${my} ${x2} ${tip + a * 0.7}" stroke-width="${w.toFixed(1)}">${rows}</path>`);
+    parts.push(`<path class="pg-arrowhead" d="M${x2} ${tip}L${x2 - a / 2} ${tip + a}L${x2 + a / 2} ${tip + a}z"/>`);
+    // The row count sits on the outer side of the bend, clear of the curve.
+    const left = x2 > x1;
+    if (p.node.stats) parts.push(`<text class="pg-edge-label" x="${left ? x1 - w / 2 - 6 : x1 + w / 2 + 6}" y="${y1 - 8}"${left ? ' text-anchor="end"' : ''}>${fmtRows(p.node.stats.rows)}</text>`);
   }
   // Boxes: filled by share of self time; a flag where rows miss the estimate 10x or more.
   placed.forEach((p, i) => {
@@ -267,7 +274,6 @@ export function drawPlanGraph(host: HTMLElement, root: PlanNode, title: string):
   });
   scroller.innerHTML =
     `<svg class="pg-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(title)}">` +
-    `<defs><marker id="pg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="pg-arrowhead"/></marker></defs>` +
     parts.join('') +
     `</svg>`;
 
