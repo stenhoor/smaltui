@@ -192,6 +192,11 @@ input:focus, select:focus, textarea.plain:focus { border-color: var(--primary); 
 .msg.warn .b { color: var(--warning); }
 .msg .sql { color: var(--muted); white-space: pre-wrap; display: block; max-height: 4.6em; overflow: hidden; }
 .plan { flex: 1; overflow: auto; padding: 12px; font: 12px/1.6 var(--mono); white-space: pre; }
+.plan-stack { overflow: auto; }
+.plan-stack > .plan { flex: none; overflow: visible; }
+.plan-stack > .grid { flex: none; height: 45%; min-height: 160px; }
+.plan-label { padding: 10px 12px 0; font: 600 11px/1.4 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); }
+.plan-stack > .plan-label + .plan-data { border-top: 0; }
 .placeholder { margin: auto; color: var(--muted); text-align: center; padding: 24px; line-height: 1.7; }
 .placeholder h3 { color: var(--text); margin: 0 0 6px; font-size: 15px; }
 
