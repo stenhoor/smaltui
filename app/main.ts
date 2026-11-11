@@ -1253,9 +1253,9 @@ function tsTab(title: string, source: string): TsTab {
       });
       this.texts.forEach((t, i) => views.push({ key: 't' + i, label: t.title, build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = t.text) }));
       // Plan / Analyze: the engine's EXPLAIN, shown as a SQL tab shows it.
-      if (this.plan) views.push({ key: 'plan', label: this.plan.analyze ? 'Analyze' : 'Plan', build: (pane) => planWithData(pane, this.plan!, this.planData) });
-      // Plan data: the plan statement smaltdf built and sent to the engine, in the Plan pane with Explain, else its own view.
-      if (this.planData && !this.plan) views.push({ key: 'plandata', label: 'Plan data', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.planData) });
+      if (this.plan) views.push({ key: 'plan', label: this.plan.analyze ? 'Analyze' : 'Plan', build: (pane) => planView(pane, this.plan!) });
+      // Plan data: the plan statement smaltdf built and sent to the engine.
+      if (this.planData) views.push({ key: 'plandata', label: 'Plan data', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.planData) });
       views.push({
         key: 'messages',
         label: 'Messages',
@@ -1352,19 +1352,6 @@ function planView(pane: HTMLElement, p: PlanResult): void {
   } else {
     new Grid(pane.appendChild(h('<div class="grid"></div>'))).setData(cols, p.rows);
   }
-}
-
-/**
- * The Plan pane: the engine's EXPLAIN, and under it, when there is one, the plan statement the language submitted to
- * the engine (Plan data), so Explain shows both at once.
- */
-function planWithData(pane: HTMLElement, p: PlanResult, planData: string | null): void {
-  if (!planData) return planView(pane, p);
-  pane.classList.add('plan-stack');
-  pane.appendChild(h('<div class="plan-label">How the engine runs it</div>'));
-  planView(pane, p);
-  pane.appendChild(h('<div class="plan-label">Plan data: what the language submitted to the engine</div>'));
-  pane.appendChild(h('<pre class="plan plan-data"></pre>')).textContent = planData;
 }
 
 function toCell(v: unknown): Value {
@@ -1759,12 +1746,11 @@ function queryTab(title: string, sql: string): QueryTab {
         views.push({
           key: 'plan',
           label: this.plan.analyze ? 'Analyze' : 'Plan',
-          build: (pane) => planWithData(pane, this.plan!, this.planData),
+          build: (pane) => planView(pane, this.plan!),
         });
       }
-      // Plan data: the plan statement smaltql bound the last statement to and submitted to the engine. With Explain or
-      // Analyze it is in the Plan pane; after a run, its own view.
-      if (this.planData && !this.plan) views.push({ key: 'plandata', label: 'Plan data', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.planData) });
+      // Plan data: the plan statement smaltql bound the last statement to and submitted to the engine.
+      if (this.planData) views.push({ key: 'plandata', label: 'Plan data', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.planData) });
       for (const v of views) {
         const b = h(`<button class="subtab${v.err ? ' err' : ''}" data-view="${v.key}">${esc(v.label)}${v.badge ? `<span class="badge">${esc(v.badge)}</span>` : ''}</button>`);
         const pane = h(`<div class="subpane" data-pane="${v.key}"></div>`);
