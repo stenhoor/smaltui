@@ -206,6 +206,8 @@ input:focus, select:focus, textarea.plain:focus { border-color: var(--primary); 
 .ed-input { position: absolute; inset: 0; width: 100%; height: 100%; resize: none; background: transparent; color: transparent; caret-color: var(--text); outline: none; overflow: auto; z-index: 1; }
 .ed-input::selection { background: color-mix(in srgb, var(--primary) 30%, transparent); color: transparent; }
 .ed-stmt { position: absolute; left: 0; right: 0; background: var(--stmt); border-left: 2px solid color-mix(in srgb, var(--primary) 50%, transparent); pointer-events: none; display: none; }
+.ed-hl mark.ed-warn { background: none; color: inherit; text-decoration: underline wavy var(--warning); text-decoration-skip-ink: none; text-underline-offset: 3px; }
+.sk-ed-warnline { color: var(--warning); font-weight: 600; cursor: help; }
 .ed-hl mark.ed-err { background: var(--danger-soft); color: inherit; border-bottom: 2px wavy var(--danger); }
 .tk-k { color: var(--tk-k); font-weight: 600; }
 .tk-f { color: var(--tk-f); }

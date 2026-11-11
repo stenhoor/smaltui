@@ -44,7 +44,9 @@ database (schema, data, linked sources, saved queries) when it opens.
   `Ctrl+Enter` runs the tab: its last expression and every `show(value)` are results (frames as grids); Explain and
   Analyze show the engine's plan of its frame as for SQL, and Plan data the plan statement smaltdf sent. smaltdf's
   functions and `db` are in scope; types are stripped by `smaltkit/typescript` (smaltty), which replaces them with
-  spaces, so syntax errors give the line and column written. Format re-indents the code (`smaltkit/pretty`). Kept with the tabs,
+  spaces, so syntax errors give the line and column written. As the code is typed, `smaltkit/typecheck` (smaltty's
+  checker, in a worker) checks its calls into smaltdf against smaltdf's declarations and marks TypeScript's errors as
+  warnings; the tab still runs. Format re-indents the code (`smaltkit/pretty`). Kept with the tabs,
   saved as `.ts` files, and carried in manifests as queries with `"lang": "ts"`.
 - **Table viewer:** paged data with server-side sorting (click a header) and a free-form `WHERE` filter. Columns,
   indexes, constraints and highlighted DDL. For external tables it shows the source; for materialized views, refresh
@@ -136,7 +138,8 @@ after every `npm ci` or `npm install`. `scripts/vendor-smaltdb.mjs` then bundles
 - `VERSION.json` (the pinned commits) and `THIRD_PARTY_NOTICES.txt` (licences of the bundled third-party code).
 
 It also bundles `vendor/smaltdf/smaltdf.js` (smaltdf), which TypeScript tabs load on first use. They strip types with
-`smaltkit/typescript`, from `vendor/smaltkit/`.
+`smaltkit/typescript`, from `vendor/smaltkit/`, and are checked by `smaltkit/typecheck` against
+`vendor/smaltdf/types.json`: smaltdf's declarations (`.d.ts`) and what a tab has without an import (`db`, `show`).
 
 `vendor/` is generated, not committed. The page loads the engine from there, from the same origin, so it works offline
 and under cross-origin isolation.
@@ -255,8 +258,8 @@ app/globals.d.ts      File System Access API declarations missing from TypeScrip
 site/demo.ts          the live console
 (app|site)/*.js       compiled output (npm run compile; not committed)
 vendor/smaltdb/       engine: smaltdb, smaltql, smaltdf's language and plugins, bundled by npm run deps (not committed)
-vendor/smaltdf/       smaltdf for TypeScript tabs, bundled by npm run deps (not committed)
-vendor/smaltkit/      shared modules (engine loader and OPFS catalog, data-URL rewriting, CORS hints, TypeScript type stripping), copied from node_modules/smaltkit on install (not committed)
+vendor/smaltdf/       smaltdf for TypeScript tabs, and its declarations for the type checker, bundled by npm run deps (not committed)
+vendor/smaltkit/      shared modules (engine loader and OPFS catalog, data-URL rewriting, CORS hints, TypeScript type stripping and checking), copied from node_modules/smaltkit on install (not committed)
 envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)
 scripts/              compile (TypeScript → .js), fetch-packed (pinned packages), vendor (→ vendor/), brand sync, build, serve

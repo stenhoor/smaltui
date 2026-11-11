@@ -35,9 +35,16 @@ the same keys.
 
 smaltdf's functions (`table`, `col`, `lit`, `len`, `concat`, `update`, …) are in scope, with `db`, the open database.
 `import { … } from '@smaltdb/df'` works too, so code can be copied to and from a project. The code is TypeScript:
-its types are removed before it runs, not checked, by [smaltty](https://github.com/stenhoor/smaltty). It replaces them
-with spaces, so a syntax error names the line and column you wrote. It comes with the
-workbench and loads the first time a tab runs, so tabs work offline.
+its types are removed before it runs by [smaltty](https://github.com/stenhoor/smaltty). It replaces them with spaces,
+so a syntax error names the line and column you wrote. It comes with the workbench and loads the first time a tab
+runs, so tabs work offline.
+
+As you type, smaltty's checker reads the tab's calls into smaltdf against smaltdf's own declarations, off the page in a
+worker, and marks what TypeScript would call an error: a method or property that doesn't exist (`.sortt(…)`, with
+TypeScript's *Did you mean 'sort'?*), an argument too many or too few, or an argument of the wrong type. These are
+warnings: the text is underlined, the line number marked, and the message shows when you point at either. The tab
+still runs as written. The checker reports only what TypeScript reports too, and stays quiet about anything it doesn't
+model, so a tab without a mark can still have an error TypeScript would find.
 
 Types are removed, never turned into code, as with TypeScript's `erasableSyntaxOnly`. So a tab can't use what would
 make code of its own, and says what to write instead:

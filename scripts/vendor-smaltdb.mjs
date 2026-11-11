@@ -10,6 +10,8 @@
 //
 // and vendor/smaltdf/smaltdf.js, @smaltdb/df, smaltdf's frames and expressions (it builds plans that run in the
 // worker), which TypeScript tabs load on first use. They strip types with smaltkit/typescript (vendor/smaltkit/).
+// vendor/smaltdf/types.json holds smaltdf's declarations (.d.ts) and a tab's own names (`db`, `show`), for the type
+// checker (smaltkit/typecheck), which warns about a tab's code while it is typed.
 //
 // smaltdb has no language built in (smaltdb ADR 0015): the worker registers smaltql, and optional features are
 // plugins built into it (ADR 0012). None of these packages is on npm yet: packed.json pins each to a commit, and
@@ -45,6 +47,14 @@ import io from '@smaltdb/io';
 import external from '@smaltdb/external';
 import parquet from '@smaltdb/parquet';
 defineWorker({ languages: [sqlLanguage, dfLanguage], plugins: [io, external, parquet] });
+`;
+
+/** What a TypeScript tab has without an import, for the type checker: smaltdf, the open database, and show(). */
+const TAB_GLOBALS = `export * from '@smaltdb/df';
+/** The open database (smaltdb's Database, whose declarations aren't here: unknown to the checker, so quiet). */
+export declare const db: any;
+/** Shows a value (a frame as a grid) as one of the tab's results, under its title. */
+export declare function show(value: unknown, title?: string): void;
 `;
 
 rmSync(out, { recursive: true, force: true });
@@ -83,6 +93,13 @@ function writeNotices(folder, results) {
   return notices.length;
 }
 const noticeCount = writeNotices(out, [client, worker, df]);
+
+// The type checker's setup: smaltdf's declarations under /df/, and /tab.d.ts, what a TypeScript tab has without an
+// import (smaltdf's exports, `db` and `show`, as app/main.ts gives them).
+const dfDist = join(dirname(pkg('@smaltdb/df')), 'dist');
+const types = { '/tab.d.ts': TAB_GLOBALS };
+for (const f of readdirSync(dfDist).sort()) if (f.endsWith('.d.ts')) types[`/df/${f}`] = readFileSync(join(dfDist, f), 'utf8');
+writeFileSync(join(dfOut, 'types.json'), JSON.stringify({ files: types, packages: { '@smaltdb/df': '/df/index.d.ts' }, globals: ['/tab.d.ts'] }) + '\n');
 
 const versions = Object.fromEntries(Object.keys(pins).map((name) => [name, { version: JSON.parse(readFileSync(pkg(name), 'utf8')).version, commit: pins[name].ref ?? null }]));
 const smaltdb = versions.smaltdb;

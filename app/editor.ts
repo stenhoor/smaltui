@@ -3,6 +3,9 @@
 // edits TypeScript (smaltdf tabs), with completion of smaltdf names and of tables and columns in table('…') / col('…').
 import { highlight, wordBefore, aliasesIn, statementAt, KEYWORDS, FUNCTIONS, unquote, type Statement } from './sql.js';
 import { highlightTs, tsWordBefore, TS_KEYWORDS } from './ts.js';
+import { gutterHtml, markedHtml, type EditorWarning } from '../vendor/smaltkit/editor.js';
+
+export type { EditorWarning };
 
 /** A column as the object explorer and completion know it. */
 export interface SchemaColumn {
@@ -52,6 +55,9 @@ export class Editor {
   stmtMark: HTMLDivElement;
   popup: HTMLDivElement;
   errorRange: { start: number; end: number; cls: string } | null = null;
+  /** The type checker's warnings, marked in the text and the gutter until the next edit (setWarnings). */
+  warnings: EditorWarning[] = [];
+  private gutterKey = '';
   lineCount = 0;
   compItems: CompletionItem[] = [];
   compStart = 0;
@@ -139,8 +145,15 @@ export class Editor {
     this.render();
   }
 
+  /** Marks warnings: their text underlined, their lines marked in the gutter with the messages on hover. The code still runs. */
+  setWarnings(warnings: readonly EditorWarning[]): void {
+    this.warnings = [...warnings];
+    this.render();
+  }
+
   changed(): void {
     this.errorRange = null;
+    this.warnings = [];
     this.render();
     this.opts.onChange?.(this.ta.value);
     this.markStatement();
@@ -151,19 +164,16 @@ export class Editor {
     const schema = this.opts.schema?.();
     const fns = this.opts.language === 'ts' ? new Set(this.opts.tsNames?.().globals ?? []) : undefined;
     const hl = (t: string) => (this.opts.language === 'ts' ? highlightTs(t, schema?.names, fns) : highlight(t, schema?.names));
-    let html = hl(text);
-    if (this.errorRange) {
-      // Re-render with an error mark: simplest is to highlight the three slices separately.
-      const { start, end, cls } = this.errorRange;
-      html = hl(text.slice(0, start)).slice(0, -1) + `<mark class="${cls}">` + hl(text.slice(start, end)).slice(0, -1) + '</mark>' + hl(text.slice(end));
-    }
-    this.hl.innerHTML = html;
+    // An error mark (highlightRange) wins over a warning it overlaps; each slice is highlighted on its own.
+    const marks: { start: number; end: number; cls: string; title?: string }[] = this.errorRange ? [this.errorRange] : [];
+    for (const w of this.warnings) marks.push({ start: w.start, end: w.end, cls: 'ed-warn', title: w.message });
+    this.hl.innerHTML = marks.length ? markedHtml(text, marks, hl) : hl(text);
     const n = text.split('\n').length;
-    if (n !== this.lineCount) {
+    const key = `${n}:${this.warnings.map((w) => `${w.start}:${w.message}`).join('|')}`;
+    if (key !== this.gutterKey) {
+      this.gutterKey = key;
       this.lineCount = n;
-      let s = '';
-      for (let i = 1; i <= n; i++) s += i + '\n';
-      this.lines.textContent = s;
+      this.lines.innerHTML = gutterHtml(text, n, this.warnings);
     }
     this.syncScroll();
   }
