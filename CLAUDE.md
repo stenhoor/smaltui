@@ -24,7 +24,7 @@ npm install            # postinstall copies smaltkit into vendor/ and compiles t
 npm run deps           # build smaltdb 0.9, smaltql and the plugins pinned in packed.json; bundle vendor/smaltdb/
                        # (not on npm yet: run it after every npm ci / npm install)
 npm run dev            # serve and recompile on change
-npm run typecheck      # tsc --noEmit, strict (CI runs it)
+npm run typecheck      # tsc --noEmit (TypeScript 7), strict (CI runs it)
 npm run serve          # compile once, then the workbench, http://localhost:8080 (COOP/COEP on; --no-isolation to drop it,
                        # --gzip to compress like GitHub Pages)
 npm run preview        # build, then serve it at /smaltui/ (site, console.html, workbench/), as deployed

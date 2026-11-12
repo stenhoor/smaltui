@@ -1,6 +1,6 @@
 // Compiles the TypeScript sources (app/*.ts, site/*.ts) to JavaScript next to them: app/main.ts → app/main.js.
 // The pages load those .js files directly, so serving the repo, building dist/ and the tests all work on the output.
-// The compiled files are generated (gitignored). Type checking is separate: `npm run typecheck` (tsc, strict).
+// The compiled files are generated (gitignored). Type checking is separate: `npm run typecheck` (tsc 7, strict).
 //
 //   node scripts/compile.mjs           # compile once (runs on npm install, serve, build and test)
 //   node scripts/compile.mjs --watch   # recompile on change (npm run dev)
