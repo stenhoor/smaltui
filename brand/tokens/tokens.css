@@ -28,6 +28,8 @@
   --product-ql-text: var(--layer-language-text);
   --product-ts: var(--layer-language);
   --product-ts-text: var(--layer-language-text);
+  --product-ty: var(--kiln-500);
+  --product-ty-text: var(--accent);
   --bg: #F5F6F8;
   --surface: #FFFFFF;
   --code-bg: #EEF1F6;
@@ -72,6 +74,8 @@
   --product-ql-text: var(--layer-language-text);
   --product-ts: var(--layer-language);
   --product-ts-text: var(--layer-language-text);
+  --product-ty: #FF8A5C;
+  --product-ty-text: var(--accent);
   --bg: #14171F;
   --surface: #1B1F29;
   --code-bg: #11141B;
@@ -117,6 +121,8 @@
     --product-ql-text: var(--layer-language-text);
     --product-ts: var(--layer-language);
     --product-ts-text: var(--layer-language-text);
+    --product-ty: #FF8A5C;
+    --product-ty-text: var(--accent);
     --bg: #14171F;
     --surface: #1B1F29;
     --code-bg: #11141B;

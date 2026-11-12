@@ -131,10 +131,12 @@
 .VPHero .name .suffix.kit      { color: #086A65; -webkit-text-fill-color: #086A65; }
 .VPHero .name .suffix.tool     { color: #0B6A91; -webkit-text-fill-color: #0B6A91; }
 .VPHero .name .suffix.ai       { color: #6141AE; -webkit-text-fill-color: #6141AE; }
+.VPHero .name .suffix.family   { color: #A33A12; -webkit-text-fill-color: #A33A12; } /* kiln: smaltty */
 .dark .VPHero .name .suffix.language { color: #F57FE6; -webkit-text-fill-color: #F57FE6; }
 .dark .VPHero .name .suffix.kit      { color: #10C2B9; -webkit-text-fill-color: #10C2B9; }
 .dark .VPHero .name .suffix.tool     { color: #5CBDE8; -webkit-text-fill-color: #5CBDE8; }
 .dark .VPHero .name .suffix.ai       { color: #B8A1F2; -webkit-text-fill-color: #B8A1F2; }
+.dark .VPHero .name .suffix.family   { color: #FF8A5C; -webkit-text-fill-color: #FF8A5C; }
 
 /* Light and dark copies of a badge: show the one for the current theme. */
 .sw-dark { display: none; }
