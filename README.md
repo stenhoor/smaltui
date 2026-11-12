@@ -88,8 +88,8 @@ npm run dev          # http://localhost:8080, recompiling on change
 
 smaltui is written in TypeScript (strict). `scripts/compile.mjs` compiles each `app/*.ts` and `site/*.ts` to a `.js`
 beside it (esbuild, one file per module, no bundling), and the pages load those files; they are generated and not
-committed. `npm run typecheck` runs `tsc`; CI runs it on every push. `npm run serve` compiles once and serves without
-watching.
+committed. `npm run typecheck` runs `tsc` (TypeScript 7; smaltui emits nothing with it, so it needs no TypeScript 6);
+CI runs it on every push. `npm run serve` compiles once and serves without watching.
 
 `scripts/serve.mjs` sends COOP/COEP headers, so the page is cross-origin isolated: smaltdb then uses parallel
 reader workers and can interrupt running statements. It also answers Range and HEAD requests, which smaltdb uses for
