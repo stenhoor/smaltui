@@ -11,7 +11,8 @@
 // and vendor/smaltdf/smaltdf.js, @smaltdb/df, smaltdf's frames and expressions (it builds plans that run in the
 // worker), which TypeScript tabs load on first use. They strip types with smaltkit/typescript (vendor/smaltkit/).
 // vendor/smaltdf/types.json holds smaltdf's declarations (.d.ts) and a tab's own names (`db`, `show`), for the type
-// checker (smaltkit/typecheck), which warns about a tab's code while it is typed.
+// checker (smaltkit/typecheck), which warns about a tab's code while it is typed; vendor/smaltdf/types.bin holds them
+// prepared (smaltty's prepare()), which the checker reads in place of the text.
 //
 // smaltdb has no language built in (smaltdb ADR 0015): the worker registers smaltql, and optional features are
 // plugins built into it (ADR 0012). None of these packages is on npm yet: packed.json pins each to a commit, and
@@ -20,7 +21,7 @@
 import { build } from 'esbuild';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'vendor', 'smaltdb');
@@ -100,6 +101,11 @@ const dfDist = join(dirname(pkg('@smaltdb/df')), 'dist');
 const types = { '/tab.d.ts': TAB_GLOBALS };
 for (const f of readdirSync(dfDist).sort()) if (f.endsWith('.d.ts')) types[`/df/${f}`] = readFileSync(join(dfDist, f), 'utf8');
 writeFileSync(join(dfOut, 'types.json'), JSON.stringify({ files: types, packages: { '@smaltdb/df': '/df/index.d.ts' }, globals: ['/tab.d.ts'] }) + '\n');
+// The same declarations prepared (smaltty's prepare(), milestone 11): read by the checker in place of parsing their
+// text, so a tab's first check is quicker. Made by the smaltty smaltkit copies into vendor/smaltkit/ (the one the page
+// runs); the checker ignores a buffer another smaltty made and fetches types.json instead.
+const { prepare } = await import(pathToFileURL(join(root, 'node_modules', 'smaltkit', 'dist', 'smaltty', 'entry-check.js')).href);
+writeFileSync(join(dfOut, 'types.bin'), prepare(types));
 
 const versions = Object.fromEntries(Object.keys(pins).map((name) => [name, { version: JSON.parse(readFileSync(pkg(name), 'utf8')).version, commit: pins[name].ref ?? null }]));
 const smaltdb = versions.smaltdb;

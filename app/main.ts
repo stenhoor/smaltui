@@ -987,17 +987,34 @@ const loadDf = () =>
       throw e;
     }));
 // The type checker (smaltkit/typecheck, smaltty's checker in a worker): a tab's calls into smaltdf, checked against
-// smaltdf's declarations (vendor/smaltdf/types.json) as it is typed. Its errors are warnings, marked in the editor;
-// the tab still runs. Loaded on first use; where a worker can't start, tabs have no warnings.
+// smaltdf's declarations as it is typed. They come prepared (vendor/smaltdf/types.bin, smaltty's prepare()), which the
+// checker reads in place of parsing their text (vendor/smaltdf/types.json): the worker fetches the text only if this
+// smaltty can't read the buffer. Its errors are warnings, marked in the editor; the tab still runs. The worker is
+// started, and warms itself, while the page is idle after it opens (or on first use, if that is sooner), so a tab's
+// first check doesn't wait for it; where a worker can't start, tabs have no warnings.
 type TypeCheckModule = typeof import('../vendor/smaltkit/typecheck.js');
 let checkerLoad: Promise<{ check(code: string): Promise<{ start: number; end: number; message: string }[] | null> } | null> | null = null;
+const typesUrl = (file: string) => new URL(`../vendor/smaltdf/${file}`, import.meta.url);
+/** The checker's setup: the prepared declarations, with the text as the fallback; the text alone if there is no buffer. */
+const checkerSetup = () =>
+  fetch(typesUrl('types.bin'))
+    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`types.bin: ${r.status}`))))
+    // The names a tab's code is checked with, as scripts/vendor-smaltdb.mjs writes them in types.json.
+    .then((prepared) => ({ files: {}, packages: { '@smaltdb/df': '/df/index.d.ts' }, globals: ['/tab.d.ts'], prepared, fallback: typesUrl('types.json').href }))
+    .catch(() => fetch(typesUrl('types.json')).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`types.json: ${r.status}`)))));
 const loadChecker = () =>
   (checkerLoad ??= Promise.all([
     import(/* @vite-ignore */ new URL('../vendor/smaltkit/typecheck.js', import.meta.url).href) as Promise<TypeCheckModule>,
-    fetch(new URL('../vendor/smaltdf/types.json', import.meta.url)).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`types.json: ${r.status}`)))),
+    checkerSetup(),
   ])
-    .then(([m, setup]) => m.typeCheckWorker(setup))
+    .then(([m, setup]) => m.typeCheckWorker(setup, { warm: true }))
     .catch(() => null));
+/** Starts the checker while the page is idle, so a tab's first check doesn't wait for it to load. */
+const startCheckerWhenIdle = () => {
+  const idle = (globalThis as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback;
+  if (idle) idle(() => void loadChecker(), { timeout: 2000 });
+  else setTimeout(() => void loadChecker(), 200);
+};
 
 /** Checks a TypeScript tab's code and marks its warnings, if the code is still the same when the check is done. */
 function typeCheckTab(tab: TsTab): void {
@@ -3002,6 +3019,7 @@ async function init() {
       } catch {}
     }
   }
+  startCheckerWhenIdle();
   // ?sql=… opens (and runs) a shared query, e.g. from the landing page's console. It is removed
   // from the URL so a reload does not open it again.
   const shared = params.get('sql');

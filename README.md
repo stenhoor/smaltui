@@ -138,8 +138,11 @@ after every `npm ci` or `npm install`. `scripts/vendor-smaltdb.mjs` then bundles
 - `VERSION.json` (the pinned commits) and `THIRD_PARTY_NOTICES.txt` (licences of the bundled third-party code).
 
 It also bundles `vendor/smaltdf/smaltdf.js` (smaltdf), which TypeScript tabs load on first use. They strip types with
-`smaltkit/typescript`, from `vendor/smaltkit/`, and are checked by `smaltkit/typecheck` against
-`vendor/smaltdf/types.json`: smaltdf's declarations (`.d.ts`) and what a tab has without an import (`db`, `show`).
+`smaltkit/typescript`, from `vendor/smaltkit/`, and are checked by `smaltkit/typecheck` against smaltdf's declarations
+(`.d.ts`) and what a tab has without an import (`db`, `show`): `vendor/smaltdf/types.bin` holds them prepared (smaltty's
+`prepare()`), which the checker reads in place of parsing their text, and `vendor/smaltdf/types.json` their text, which
+the checker's worker fetches only if its smaltty can't read the buffer. The worker starts, and warms itself, while the
+page is idle after it opens, so a tab's first check takes a few milliseconds.
 
 `vendor/` is generated, not committed. The page loads the engine from there, from the same origin, so it works offline
 and under cross-origin isolation.
