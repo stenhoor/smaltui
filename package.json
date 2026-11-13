@@ -25,6 +25,6 @@
     "vitepress": "^1.6.4"
   },
   "dependencies": {
-    "smaltkit": "github:stenhoor/smaltkit#21d0bee79889fc529c3a73b8bce92a984ab867f4"
+    "smaltkit": "github:stenhoor/smaltkit#b06a9ae3a1fab51ecb4a5619dfd7aa55f61480d3"
   }
 }

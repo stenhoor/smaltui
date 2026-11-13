@@ -23,7 +23,11 @@ const ctx = await browser.newContext({ viewport: { width: 1400, height: 860 } })
 await ctx.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
 // TypeScript tabs strip types with smaltkit/typescript from vendor/: nothing for them may come from a CDN.
 const cdnRequests = [];
+/** The checker's declarations fetched, by file (types.bin prepared, types.json their text). */
+const typesRequests = [];
 ctx.on('request', (r) => {
+  const types = /\/vendor\/smaltdf\/(types\.(?:bin|json))$/.exec(r.url());
+  if (types) typesRequests.push(types[1]);
   if (/^https:\/\/(cdn\.jsdelivr\.net|unpkg\.com|esm\.sh)\//.test(r.url())) cdnRequests.push(r.url());
 });
 const page = await ctx.newPage();
@@ -382,8 +386,32 @@ try {
     await checked();
     const title = await mark.getAttribute('title');
     if (title !== "Property 'sortt' does not exist on type 'Frame'. Did you mean 'sort'?") throw new Error('misspelt: ' + title);
+    // The checker read smaltdf's prepared declarations: their text (the fallback) was never fetched.
+    if (!typesRequests.includes('types.bin') || typesRequests.includes('types.json')) throw new Error('declarations fetched: ' + typesRequests.join(', '));
   });
   await shot('06b-typecheck');
+
+  await step("TypeScript tab: prepared declarations another smaltty wrote are ignored, and their text read instead", async () => {
+    // A page whose types.bin isn't one this smaltty reads (as a browser could keep from an earlier deploy).
+    const stale = await ctx.newPage();
+    await stale.route(/\/vendor\/smaltdf\/types\.bin$/, (route) => route.fulfill({ status: 200, contentType: 'application/octet-stream', body: Buffer.alloc(256, 7) }));
+    const before = typesRequests.length;
+    try {
+      await stale.goto(base + '?db=e2e_stale&storage=memory');
+      await stale.locator('#btnNewTs').click();
+      await stale.locator('.pane.active textarea.ed-input').fill("table('products').sortt('price')");
+      await stale.waitForFunction(() => {
+        const pane = document.querySelector('.pane.active');
+        return pane?.dataset.checked !== undefined && pane.dataset.checked === pane.querySelector('textarea.ed-input')?.value;
+      }, null, { timeout: 15000 });
+      const title = await stale.locator('.pane.active .ed-hl mark.ed-warn').getAttribute('title');
+      if (title !== "Property 'sortt' does not exist on type 'Frame'. Did you mean 'sort'?") throw new Error('from the text: ' + title);
+      const fetched = typesRequests.slice(before);
+      if (!fetched.includes('types.bin') || !fetched.includes('types.json')) throw new Error('declarations fetched: ' + fetched.join(', '));
+    } finally {
+      await stale.close();
+    }
+  });
 
   await step('export environment round-trips', async () => {
     const m = await page.evaluate(async () => {
