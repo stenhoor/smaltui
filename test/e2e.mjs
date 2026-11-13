@@ -81,13 +81,20 @@ try {
 
   await step('create a table and insert rows from a script', async () => {
     await page.locator('#btnNewQuery').click();
-    await typeSql("CREATE TABLE people(id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INT);\nINSERT INTO people(name, age) VALUES ('Ada', 36), ('Grace', 85), ('Alan', 41);\nSELECT * FROM people ORDER BY age;");
+    await typeSql("CREATE TABLE people(id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INT);\nINSERT INTO people(name, age) VALUES ('Ada', 36), ('Grace', 85), ('Alan', 41);\nCREATE TABLE elders AS SELECT name, age FROM people WHERE age > 40;\nSELECT * FROM people ORDER BY age;");
     await page.keyboard.press('Control+Shift+Enter');
     await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent.startsWith('Result'), null, { timeout: 10000 });
     const cells = await activePane().locator('.grid-table tbody td[data-col="1"]').allTextContents();
     if (cells.join(',') !== 'Ada,Alan,Grace') throw new Error('unexpected rows ' + cells);
     // The tree refreshes after the script, asynchronously: wait for it rather than look once.
     await page.locator('#tree [data-obj="people"]').first().waitFor({ timeout: 5000 }).catch(() => { throw new Error('tree not refreshed'); });
+    // CREATE TABLE … AS SELECT made a table, and filled it.
+    await page.locator('#tree [data-obj="elders"]').first().waitFor({ timeout: 5000 }).catch(() => { throw new Error('no table from CREATE TABLE AS'); });
+    await typeSql('SELECT name FROM elders ORDER BY age');
+    await page.keyboard.press('Control+Enter');
+    await page
+      .waitForFunction(() => [...document.querySelectorAll('.pane.active .grid-table tbody td[data-col="0"]')].map((td) => td.textContent).join(',') === 'Alan,Grace', null, { timeout: 5000 })
+      .catch(async () => { throw new Error('elders: ' + (await activePane().locator('.grid-table tbody td[data-col="0"]').allTextContents())); });
   });
   await shot('02-query');
 
