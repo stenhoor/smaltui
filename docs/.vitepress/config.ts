@@ -43,6 +43,7 @@ export default defineConfig({
         items: [
           { text: 'Getting started', link: '/guide/' },
           { text: 'TypeScript tabs (smaltdf)', link: '/guide/typescript' },
+          { text: 'Cypher tabs (smaltcy)', link: '/guide/cypher' },
           { text: 'Environments', link: '/guide/environments' },
           { text: 'Import and link data', link: '/guide/import' },
           { text: 'Engine and deploy', link: '/guide/engine' },

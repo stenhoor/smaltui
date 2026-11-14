@@ -1,9 +1,12 @@
 // A small code editor: a transparent <textarea> over a highlighted <pre>, with line numbers,
 // auto-indent, comment toggling, bracket/quote pairing and a completion popup. SQL by default; `language: 'ts'`
-// edits TypeScript (smaltdf tabs), with completion of smaltdf names and of tables and columns in table('…') / col('…').
+// edits TypeScript (smaltdf tabs), with completion of smaltdf names and of tables and columns in table('…') / col('…');
+// `language: 'cypher'` edits Cypher (smaltcy tabs) with smaltkit/cypher: highlighting, statements, and completion of the
+// graph's labels, relationship types and property keys (`cypherVocab`).
 import { highlight, wordBefore, aliasesIn, statementAt, KEYWORDS, FUNCTIONS, unquote, type Statement } from './sql.js';
 import { highlightTs, tsWordBefore, TS_KEYWORDS } from './ts.js';
 import { gutterHtml, markedHtml, type EditorWarning } from '../vendor/smaltkit/editor.js';
+import { completeCypher, cypherStatementAt, cypherWordBefore, highlightCypher, type CypherVocabulary } from '../vendor/smaltkit/cypher.js';
 
 export type { EditorWarning };
 
@@ -31,8 +34,10 @@ export interface EditorOptions {
   schema?: () => EditorSchema;
   /** Shortcuts such as "Mod+Enter", "Shift+Mod+Enter", "F5", "Mod+E". */
   keys?: Record<string, (e: KeyboardEvent) => void>;
-  /** 'sql' (default) or 'ts'. */
-  language?: 'sql' | 'ts';
+  /** 'sql' (default), 'ts' or 'cypher'. */
+  language?: 'sql' | 'ts' | 'cypher';
+  /** Cypher mode: the graph's labels, relationship types and property keys, for completion. */
+  cypherVocab?: () => CypherVocabulary | null;
   /** TypeScript mode: the names to complete, top-level functions and the members of frames and expressions. */
   tsNames?: () => { globals: string[]; members: string[] };
 }
@@ -68,7 +73,7 @@ export class Editor {
   constructor(host: HTMLElement, opts: EditorOptions = {}) {
     this.opts = opts;
     host.classList.add('editor');
-    host.innerHTML = `<div class="ed-gutter"><div class="ed-lines"></div></div><div class="ed-body"><pre class="ed-hl" aria-hidden="true"></pre><div class="ed-stmt"></div><textarea class="ed-input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="${opts.language === 'ts' ? 'TypeScript' : 'SQL'} editor"></textarea></div><div class="ed-complete" role="listbox" hidden></div>`;
+    host.innerHTML = `<div class="ed-gutter"><div class="ed-lines"></div></div><div class="ed-body"><pre class="ed-hl" aria-hidden="true"></pre><div class="ed-stmt"></div><textarea class="ed-input" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-label="${opts.language === 'ts' ? 'TypeScript' : opts.language === 'cypher' ? 'Cypher' : 'SQL'} editor"></textarea></div><div class="ed-complete" role="listbox" hidden></div>`;
     this.host = host;
     this.ta = host.querySelector('textarea')!;
     this.hl = host.querySelector<HTMLPreElement>('.ed-hl')!;
@@ -122,7 +127,7 @@ export class Editor {
 
   /** The statement under the cursor: { sql, start, end } */
   currentStatement(): Statement | null {
-    return statementAt(this.ta.value, this.ta.selectionStart);
+    return (this.opts.language === 'cypher' ? cypherStatementAt : statementAt)(this.ta.value, this.ta.selectionStart);
   }
 
   insert(text: string): void {
@@ -163,7 +168,9 @@ export class Editor {
     const text = this.ta.value;
     const schema = this.opts.schema?.();
     const fns = this.opts.language === 'ts' ? new Set(this.opts.tsNames?.().globals ?? []) : undefined;
-    const hl = (t: string) => (this.opts.language === 'ts' ? highlightTs(t, schema?.names, fns) : highlight(t, schema?.names));
+    // smaltkit's Cypher highlighter writes smaltkit's classes (sk-tk-*); this editor's are tk-*.
+    const hl = (t: string) =>
+      this.opts.language === 'ts' ? highlightTs(t, schema?.names, fns) : this.opts.language === 'cypher' ? highlightCypher(t).replace(/class="sk-tk-/g, 'class="tk-') : highlight(t, schema?.names);
     // An error mark (highlightRange) wins over a warning it overlaps; each slice is highlighted on its own.
     const marks: { start: number; end: number; cls: string; title?: string }[] = this.errorRange ? [this.errorRange] : [];
     for (const w of this.warnings) marks.push({ start: w.start, end: w.end, cls: 'ed-warn', title: w.message });
@@ -192,7 +199,7 @@ export class Editor {
       this.stmtMark.style.display = 'none';
       return;
     }
-    const st = statementAt(text, this.ta.selectionStart);
+    const st = (this.opts.language === 'cypher' ? cypherStatementAt : statementAt)(text, this.ta.selectionStart);
     if (!st) {
       this.stmtMark.style.display = 'none';
       return;
@@ -266,7 +273,7 @@ export class Editor {
       document.execCommand?.('insertText', false, '\n' + indent + extra) || this.insert('\n' + indent + extra);
       return;
     }
-    const pairs: Record<string, string> = this.opts.language === 'ts' ? { '(': ')', '[': ']', '{': '}', "'": "'", '"': '"', '`': '`' } : { '(': ')', "'": "'", '"': '"' };
+    const pairs: Record<string, string> = this.opts.language === 'ts' || this.opts.language === 'cypher' ? { '(': ')', '[': ']', '{': '}', "'": "'", '"': '"', '`': '`' } : { '(': ')', "'": "'", '"': '"' };
     if (pairs[e.key] && !mod) {
       const { selectionStart: s, selectionEnd: en } = ta;
       if (s !== en) {
@@ -288,7 +295,7 @@ export class Editor {
           else this.hideComplete();
           return;
         }
-        const { word, qualifier } = wordBefore(ta.value, ta.selectionStart);
+        const { word, qualifier } = (this.opts.language === 'cypher' ? cypherWordBefore : wordBefore)(ta.value, ta.selectionStart);
         if (qualifier !== null || word.length >= 2) this.showComplete(false);
         else this.hideComplete();
       });
@@ -323,7 +330,7 @@ export class Editor {
     if (le < 0) le = v.length;
     const block = v.slice(ls, le);
     const lines = block.split('\n');
-    const mark = this.opts.language === 'ts' ? '//' : '--';
+    const mark = this.opts.language === 'ts' || this.opts.language === 'cypher' ? '//' : '--';
     const all = lines.filter((l) => l.trim()).every((l) => l.trimStart().startsWith(mark));
     const out = lines.map((l) => (all ? l.replace(new RegExp(`^(\\s*)${mark} ?`), '$1') : l.trim() ? `${mark} ` + l : l)).join('\n');
     ta.setSelectionRange(ls, le);
@@ -336,6 +343,7 @@ export class Editor {
 
   candidates(explicit: boolean): { items: CompletionItem[]; start: number } {
     if (this.opts.language === 'ts') return this.tsCandidates(explicit);
+    if (this.opts.language === 'cypher') return completeCypher(this.ta.value, this.ta.selectionStart, this.opts.cypherVocab?.() ?? null, explicit);
     const v = this.ta.value;
     const pos = this.ta.selectionStart;
     const { word, start, qualifier } = wordBefore(v, pos);

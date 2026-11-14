@@ -14,6 +14,10 @@
 // checker (smaltkit/typecheck), which warns about a tab's code while it is typed; vendor/smaltdf/types.bin holds them
 // prepared (smaltty's prepare()), which the checker reads in place of the text.
 //
+// vendor/smaltcy/ holds smaltcy (@smaltworks/smaltcy), the graph database Cypher tabs query: smaltcy.js, its client
+// (`connect`), and smaltcy-worker.js, the worker that keeps the workbench's graph and runs Cypher. Its graph view is
+// smaltkit/graph (vendor/smaltkit/).
+//
 // smaltdb has no language built in (smaltdb ADR 0015): the worker registers smaltql, and optional features are
 // plugins built into it (ADR 0012). None of these packages is on npm yet: packed.json pins each to a commit, and
 // `npm run deps` (scripts/fetch-packed.mjs) builds and installs them, then runs this script. To try a local checkout:
@@ -63,12 +67,16 @@ mkdirSync(out, { recursive: true });
 const common = { bundle: true, format: 'esm', target: 'es2022', platform: 'browser', minify: true, legalComments: 'none', logLevel: 'warning', metafile: true, absWorkingDir: root };
 const dfOut = join(root, 'vendor', 'smaltdf');
 rmSync(dfOut, { recursive: true, force: true });
+const cyOut = join(root, 'vendor', 'smaltcy');
+rmSync(cyOut, { recursive: true, force: true });
 // TypeScript tabs used to strip types with a sucrase plugin bundled here; a copy left from before goes.
 rmSync(join(root, 'vendor', 'smaltdb-sucrase'), { recursive: true, force: true });
-const [client, worker, df] = await Promise.all([
+const [client, worker, df, cyClient, cyWorker] = await Promise.all([
   build({ ...common, stdin: { contents: CLIENT, resolveDir: root, sourcefile: 'smaltdb-client.js' }, outfile: join(out, 'smaltdb.js') }),
   build({ ...common, stdin: { contents: WORKER, resolveDir: root, sourcefile: 'smaltdb-worker.js' }, outdir: out, entryNames: 'smaltdb-worker', splitting: true, chunkNames: 'chunks/[name]-[hash]' }),
   build({ ...common, stdin: { contents: "export * from '@smaltdb/df';", resolveDir: root, sourcefile: 'smaltdf.js' }, outfile: join(dfOut, 'smaltdf.js') }),
+  build({ ...common, stdin: { contents: "export { connect, SmaltcyError } from '@smaltworks/smaltcy/client';", resolveDir: root, sourcefile: 'smaltcy.js' }, outfile: join(cyOut, 'smaltcy.js') }),
+  build({ ...common, stdin: { contents: "import '@smaltworks/smaltcy/worker';", resolveDir: root, sourcefile: 'smaltcy-worker.js' }, outfile: join(cyOut, 'smaltcy-worker.js') }),
 ]);
 
 // Notices: every package from node_modules in a folder's bundles, other than the smalt family (MIT, ours), written
@@ -93,7 +101,7 @@ function writeNotices(folder, results) {
   writeFileSync(join(folder, 'THIRD_PARTY_NOTICES.txt'), `Third-party code bundled into ${rel}/ by scripts/vendor-smaltdb.mjs.\n\n${notices.join('\n\n' + '-'.repeat(78) + '\n\n')}\n`);
   return notices.length;
 }
-const noticeCount = writeNotices(out, [client, worker, df]);
+const noticeCount = writeNotices(out, [client, worker, df, cyClient, cyWorker]);
 
 // The type checker's setup: smaltdf's declarations under /df/, and /tab.d.ts, what a TypeScript tab has without an
 // import (smaltdf's exports, `db` and `show`, as app/main.ts gives them).
@@ -109,5 +117,6 @@ writeFileSync(join(dfOut, 'types.bin'), prepare(types));
 
 const versions = Object.fromEntries(Object.keys(pins).map((name) => [name, { version: JSON.parse(readFileSync(pkg(name), 'utf8')).version, commit: pins[name].ref ?? null }]));
 const smaltdb = versions.smaltdb;
+console.log(`vendor/smaltcy: @smaltworks/smaltcy@${versions['@smaltworks/smaltcy'].version} (${versions['@smaltworks/smaltcy'].commit?.slice(0, 7)}), its client and worker`);
 writeFileSync(join(out, 'VERSION.json'), JSON.stringify({ source: 'packed', version: smaltdb.version, commit: smaltdb.commit, packages: versions }, null, 2) + '\n');
-console.log(`vendor/smaltdb: smaltdb@${smaltdb.version} (${smaltdb.commit?.slice(0, 7)}) with ${Object.keys(pins).filter((n) => n !== 'smaltdb').join(', ')}${noticeCount ? `; notices for ${noticeCount} third-party packages` : ''}`);
+console.log(`vendor/smaltdb: smaltdb@${smaltdb.version} (${smaltdb.commit?.slice(0, 7)}) with ${Object.keys(pins).filter((n) => n !== 'smaltdb' && n !== '@smaltworks/smaltcy').join(', ')}${noticeCount ? `; notices for ${noticeCount} third-party packages` : ''}`);

@@ -24,9 +24,11 @@ https://your.host/smaltui/workbench/?env=envs/demo/env.json
   ],
   "queries": [
     { "title": "Revenue", "sql": "SELECT …" },
-    { "title": "Frames", "lang": "ts", "sql": "table('orders').head(10)" }
+    { "title": "Frames", "lang": "ts", "sql": "table('orders').head(10)" },
+    { "title": "Friends", "lang": "cypher", "sql": "MATCH (a:Person)-[:KNOWS]->(b) RETURN a, b" }
   ],
-  "open": ["orders"]
+  "open": ["orders"],
+  "graph": { "dataset": "social" }
 }
 ```
 
@@ -35,11 +37,15 @@ https://your.host/smaltui/workbench/?env=envs/demo/env.json
   the browser: the same origin, or a server that allows CORS.
 - `storage: "memory"` rebuilds the database on every visit. With `"opfs"`, `init: "once"` (the default) builds it on
   the first visit and keeps the visitor's changes after that. `"always"` rebuilds it on every visit.
+- `graph` fills the workbench's graph for [Cypher tabs](./cypher): a sample dataset of smaltcy's by name
+  (`"dataset"`, with `"size"` for the generated ones), or a graph in smaltcy's JSON (`"url"`, relative to the
+  manifest). A query with `"lang": "cypher"` opens as a Cypher tab, `"ts"` as a TypeScript tab.
 - `envs/index.json` lists the environments shown in the Import tab.
 - **⋯ → Export database as environment** writes a manifest of the open database: its schema, the rows of local
-  tables, external tables and connections by reference (never credentials), and your query tabs. **⋯ → Export as SQL
+  tables, external tables and connections by reference (never credentials), and your query, TypeScript and Cypher
+  tabs. The graph isn't in it: **⋯ → Export graph as JSON** saves it, and `"graph": { "url": … }` loads it again. **⋯ → Export as SQL
   dump** writes plain SQL.
 
 `envs/demo/` is a small tea-and-coffee shop with sample data. It has tables, indexes, a view, a materialized view,
-a linked CSV, sales data imported from a Parquet file and saved queries. The welcome tab opens it:
+a linked CSV, sales data imported from a Parquet file, saved queries, and smaltcy's social sample as its graph. The welcome tab opens it:
 [try it](/workbench/?env=envs/demo/env.json){target="_self"}.

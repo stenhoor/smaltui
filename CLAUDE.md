@@ -81,12 +81,17 @@ scripts/install-chromium.sh   # npm install --no-save playwright, then Chromium 
   from a CDN (smalt-brand DECISIONS.md, "Outside code: ask first, and plugins carry it"). It follows TypeScript's rules:
   what would make code of its own (enums, namespaces with values, parameter properties, `<T>x`) is refused.
   smaltdb's pin follows smaltdf's. Move the pins deliberately, in their own PR, and run `npm test`.
+- **smaltcy:** Cypher tabs query the workbench's graph, kept by [smaltcy](https://github.com/stenhoor/smaltcy)
+  (`@smaltworks/smaltcy`, pinned in `packed.json`), a graph database of its own: not in smaltdb, in its own worker
+  (`vendor/smaltcy/`), in memory until smaltcy's storage on smaltdb exists (smaltcy ADR 0001). Results are drawn with
+  `smaltkit/graph` (`resultsToGraph`, WebGPU only: without it the tab says so), and the editor's Cypher comes from
+  `smaltkit/cypher`; change those in smaltkit. `app/cypher.ts` holds the graph's client and the result view.
 - **smalt-brand:** logos, badges, colours, type and voice come from
   [stenhoor/smalt-brand](https://github.com/stenhoor/smalt-brand/blob/main/BRAND.md). Change assets there and sync
   `brand/`. Build colours from its tokens (`--primary`, `--text-2`, `--syn-*`, …), never hand-picked hex values, and
   follow its voice: say what smaltui is, never what it isn't.
 - **smaltnb:** notebooks are [smaltnb](https://github.com/stenhoor/smaltnb)'s. smaltui is not a notebook: it has
-  editor tabs for SQL (smaltql) and TypeScript (smaltdf), and its editor and grid are planned to move to smaltkit for
+  editor tabs for SQL (smaltql), TypeScript (smaltdf) and Cypher (smaltcy), and its editor and grid are planned to move to smaltkit for
   smaltnb to use (smaltnb DESIGN.md, decisions 20-22).
 - **smaltkit:** code shared with smaltbi lives in [stenhoor/smaltkit](https://github.com/stenhoor/smaltkit), pinned
   to a commit in package.json (`github:stenhoor/smaltkit#<commit>`) until it is on npm, and imported from

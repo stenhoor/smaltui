@@ -22,6 +22,10 @@ features:
     details: Beside the SQL tabs, query in TypeScript with smaltdf, the dataframe language for smaltdb. Frames and expressions run as plans in the same engine, on the same database.
     link: /guide/typescript
     linkText: TypeScript tabs
+  - title: Cypher tabs
+    details: Query a graph with Cypher, on smaltcy, the smalt family's graph database for the browser. Results show as tables and text, and their nodes, relationships and paths are drawn as a graph.
+    link: /guide/cypher
+    linkText: Cypher tabs
   - title: Data grids
     details: Virtualized results fetched on demand. Browse tables with paging, sorting and a WHERE filter; edit cells and add or delete rows in tables with a primary key.
   - title: Import and link

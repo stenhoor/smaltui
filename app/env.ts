@@ -15,8 +15,10 @@
 //     { "link": "data/rates.csv", "table": "rates", "format": "csv", "options": { "header": true } },
 //     { "connection": "api", "url": "https://example.com/v1/" }
 //   ],
-//   "queries": [ { "title": "Top cities", "sql": "SELECT …" }, { "title": "Frames", "lang": "ts", "sql": "table('cities').head(5)" } ],
-//   "open": ["cities"]
+//   "queries": [ { "title": "Top cities", "sql": "SELECT …" }, { "title": "Frames", "lang": "ts", "sql": "table('cities').head(5)" },
+//                { "title": "Friends", "lang": "cypher", "sql": "MATCH (a:Person)-[:KNOWS]->(b) RETURN a, b" } ],
+//   "open": ["cities"],
+//   "graph": { "dataset": "social" }      // the workbench's graph for Cypher tabs: a sample, or { "url": "graph.json" }
 // }
 //
 // Relative paths resolve against the manifest's URL. "link" steps create external tables that read
@@ -56,10 +58,10 @@ export interface ManifestStep {
 
 export interface SavedQuery {
   title: string;
-  /** The tab's text: SQL, or TypeScript with smaltdf when `lang` is "ts". */
+  /** The tab's text: SQL, TypeScript with smaltdf when `lang` is "ts", or Cypher when it is "cypher". */
   sql: string;
-  /** "sql" (default) opens a query tab; "ts" opens a TypeScript tab (smaltdf). */
-  lang?: 'sql' | 'ts';
+  /** "sql" (default) opens a query tab; "ts" opens a TypeScript tab (smaltdf); "cypher" a Cypher tab (smaltcy). */
+  lang?: 'sql' | 'ts' | 'cypher';
 }
 
 /** An environment manifest (see the format above). */
@@ -73,6 +75,11 @@ export interface Manifest {
   steps?: ManifestStep[];
   queries?: SavedQuery[];
   open?: string[];
+  /**
+   * The workbench's graph, for Cypher tabs (smaltcy): a sample dataset by name (`size` for the generated ones), or a
+   * graph in smaltcy's JSON at `url` (relative to the manifest). It replaces the graph when the environment loads.
+   */
+  graph?: { dataset?: string; size?: number; url?: string };
   /** The URL the manifest was loaded from (set by fetchManifest; relative paths resolve against it). */
   __base?: string;
 }

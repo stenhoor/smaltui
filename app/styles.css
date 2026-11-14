@@ -131,6 +131,7 @@ input:focus, select:focus, textarea.plain:focus { border-color: var(--primary); 
 .tree-col .ty { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--faint); }
 .tree-col .pk { color: var(--warning); }
 .tree-empty { color: var(--muted); padding: 16px 10px; font-size: 12px; line-height: 1.5; }
+.tree-graph-actions { color: var(--muted); padding: 4px 10px 8px 30px; font-size: 12px; }
 .side-foot { border-top: 1px solid var(--border); padding: 6px 10px; font-size: 12px; color: var(--muted); max-height: 30%; overflow: auto; }
 .side-foot:empty { display: none; }
 .side-foot .lf { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
@@ -194,6 +195,15 @@ input:focus, select:focus, textarea.plain:focus { border-color: var(--primary); 
 .plan { flex: 1; overflow: auto; padding: 12px; font: 12px/1.6 var(--mono); white-space: pre; }
 /* Plan graph (app/plangraph.ts): operator trees, with Analyze numbers. */
 .graph-pane { overflow: auto; padding: 4px 12px 16px; gap: 20px; }
+.cy-graph-pane { overflow: hidden; }
+.cy-graph-bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--panel); flex: none; font-size: 12px; }
+.cy-graph-bar button { padding: 2px 8px; font-size: 12px; }
+.cy-graph-bar button.on { background: var(--panel-2); border-color: var(--border-strong); color: var(--text); font-weight: 600; }
+.cy-graph-bar .sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
+.cy-graph-bar .grow { flex: 1; }
+.cy-graph-bar input[type="range"] { width: 110px; }
+.cy-graph-count { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.cy-graph-canvas { flex: 1; min-height: 0; width: 100%; display: block; touch-action: none; }
 .pg { display: flex; flex-direction: column; gap: 8px; flex: none; }
 .pg-title, .pg-head { font: 600 11px/1.4 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--text-2); padding-top: 10px; }
 .pg-head { padding-top: 0; }
