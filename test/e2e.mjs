@@ -48,6 +48,11 @@ async function step(name, fn) {
 }
 const shot = (n) => shots && page.screenshot({ path: join(shots, n + '.png') });
 const activePane = () => page.locator('.pane.active');
+// The demo environment is loaded once its last step is done: it opens the tables in its manifest's `open` (orders) as
+// tabs, and the last one becomes active. Its tables exist well before that, so a test that clicks a tab as soon as they
+// do can lose the active tab to the environment's own (seen on a loaded CI runner).
+const demoReady = () =>
+  page.waitForFunction(() => window.smaltui?.db && [...document.querySelectorAll('.tab')].some((t) => t.textContent.trim().startsWith('orders')), null, { timeout: 30000 });
 async function typeSql(sql) {
   const ta = activePane().locator('textarea.ed-input');
   await ta.click();
@@ -276,7 +281,7 @@ try {
 
   await step('demo environment loads', async () => {
     await page.goto(base + '?env=envs/demo/env.json');
-    await page.waitForFunction(() => window.smaltui?.db && window.smaltui.schema.tables.has('monthly_revenue'), null, { timeout: 20000 });
+    await demoReady();
     const r = await page.evaluate(async () => (await window.smaltui.db.query('SELECT (SELECT count(*) FROM orders) AS o, (SELECT count(*) FROM customers) AS c, (SELECT count(*) FROM exchange_rates) AS x')));
     if (r[0].o !== 800 || r[0].c !== 60 || r[0].x !== 8) throw new Error(JSON.stringify(r));
     await page.locator('.tab', { hasText: 'Revenue by category' }).click();
@@ -289,7 +294,7 @@ try {
 
   await step('TypeScript tab: smaltdf frames run in the engine, types are stripped, errors are reported', async () => {
     await page.goto(base + '?env=envs/demo/env.json');
-    await page.waitForFunction(() => window.smaltui?.db && window.smaltui.schema.tables.has('orders'), null, { timeout: 20000 });
+    await demoReady();
     // The demo's TypeScript tab: show() and the last expression are both results.
     await page.locator('.tab', { hasText: 'Frames (smaltdf)' }).click();
     await activePane().locator('textarea.ed-input').click();
@@ -432,7 +437,7 @@ try {
     const onRequest = (r) => /^https:\/\/(cdn\.jsdelivr\.net|unpkg\.com|esm\.sh)\//.test(r.url()) && cdn.push(r.url());
     page.on('request', onRequest);
     await page.goto(base + '?env=envs/demo/env.json');
-    await page.waitForFunction(() => window.smaltui?.db && window.smaltui.schema.tables.has('orders'), null, { timeout: 20000 });
+    await demoReady();
     // The demo's graph (smaltcy's social sample) is in the explorer, by label and relationship type.
     await page.waitForSelector('#tree [data-label="Person"]', { timeout: 30000 });
     const tree = await page.locator('[data-group="Graph"]').innerText();
