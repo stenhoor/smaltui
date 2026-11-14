@@ -393,6 +393,13 @@ try {
     await checked();
     const title = await mark.getAttribute('title');
     if (title !== "Property 'sortt' does not exist on type 'Frame'. Did you mean 'sort'?") throw new Error('misspelt: ' + title);
+    // A line being typed that doesn't parse yet: it is a warning, and the other lines are still checked.
+    await activePane().locator('textarea.ed-input').fill("table('products').sortt('price')\nconst half = table('products').head(\ntable('products').head(3, 'extra')");
+    await checked();
+    const titles = await mark.evaluateAll((ms) => ms.map((m) => m.getAttribute('title')));
+    if (titles.length !== 3) throw new Error('warnings while typing: ' + JSON.stringify(titles));
+    if (titles[0] !== "Property 'sortt' does not exist on type 'Frame'. Did you mean 'sort'?") throw new Error('first line: ' + titles[0]);
+    if (titles[2] !== 'Expected 0-1 arguments, but got 2.') throw new Error('third line: ' + titles[2]);
     // The checker read smaltdf's prepared declarations: their text (the fallback) was never fetched.
     if (!typesRequests.includes('types.bin') || typesRequests.includes('types.json')) throw new Error('declarations fetched: ' + typesRequests.join(', '));
   });
