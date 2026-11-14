@@ -25,6 +25,8 @@ export const ICONS = {
   query: svg(frame(2, 4, 20, 16, 2.5) + poly('6,8.5 8,8.5 11.5,12 8,15.5 6,15.5 9.5,12') + chip(12.5, 13.5, 5.5, 2.5)),
   // A frame: a header row, an index column, and one value as the chip (TypeScript tabs, smaltdf).
   typescript: svg(r(9, 3, 12, 4) + r(3, 9, 4, 12) + chip(9, 9, 5, 5) + r(16, 9, 5, 5) + r(9, 16, 5, 5) + r(16, 16, 5, 5)),
+  // smaltcy's Graph mark: three nodes joined at 0°, 45° and 90°, the returned node as the chip (Cypher tabs).
+  graph: svg(r(2, 2, 6, 6) + r(2, 16, 6, 6) + r(3.75, 8, 2.5, 8) + r(8, 17.75, 8, 2.5) + poly('6.5,8.25 8.25,6.5 17.5,15.75 15.75,17.5') + chip(16, 16, 6, 6)),
   import: svg(r(10.5, 2, 3, 8) + poly('6,9 18,9 12,15', true) + `<path d="M3,13H6V18H18V13H21V21H3Z"/>`),
   history: svg(`<path fill-rule="evenodd" d="M${oct(3, 21, 5.3)}ZM${oct(6, 18, 4.1)}Z"/>` + r(10.75, 7, 2.5, 6) + chip(10.75, 10.75, 5.5, 2.5)),
   welcome: svg(poly('12,2.5 21.5,12 21.5,21 15,21 15,15 9,15 9,21 2.5,21 2.5,12') + chip(10.5, 16.5, 3, 4.5)),

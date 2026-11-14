@@ -10,6 +10,8 @@ import type * as Df from '@smaltdb/df';
 import type * as Smaltdb from 'smaltdb';
 import { icon, type IconName } from './icons.js';
 import { drawPlanGraph, planDataTree, queryPlanTree } from './plangraph.js';
+import { DATASETS, cypherCell, drawResultGraph, dumpGraph, graph, graphInfo, hasGraphValues, loadDataset, loadGraphJson, refreshGraphInfo, setGraphTheme, type DatasetName, type GraphJson } from './cypher.js';
+import { splitCypher } from '../vendor/smaltkit/cypher.js';
 import { prefs, loadHistory, addHistory, clearHistory, saveFileHandle, loadFileHandles, deleteFileHandle, download } from './store.js';
 import { fetchManifest, applyManifest, manifestKey, exportManifest, exportSqlDump, externalTableSql, formatFromName, importParquet, type DataFormat, type Manifest, type ReaderOptions } from './env.js';
 
@@ -198,7 +200,7 @@ interface OpenCursor {
   close(): Promise<void>;
 }
 
-type TabKind = 'query' | 'ts' | 'table' | 'import' | 'history' | 'welcome';
+type TabKind = 'query' | 'ts' | 'table' | 'import' | 'history' | 'welcome' | 'cypher';
 
 interface TabBase {
   id: number;
@@ -362,7 +364,27 @@ interface TsTab extends TabBase {
   openFile(): void;
 }
 
-type Tab = QueryTab | TsTab | TableTab | ImportTab | HistoryTab | WelcomeTab;
+/** A Cypher tab: Cypher that runs on the workbench's graph (smaltcy, app/cypher.ts). */
+interface CypherTab extends TabBase {
+  kind: 'cypher';
+  source: string;
+  editor: Editor;
+  /** Each statement's result: its cells as text for the grid, and its values for the graph view. */
+  results: { title: string; columns: string[]; rows: Row[]; values: readonly (readonly unknown[])[]; ms: number }[];
+  /** EXPLAIN's steps (Plan). */
+  explain: string | null;
+  /** The graph plan the last statement compiled to (Plan data). */
+  planData: string | null;
+  messages: Message[];
+  grids: Grid[];
+  run(mode: 'statement' | 'script' | 'explain'): Promise<void>;
+  setBusy(b: boolean): void;
+  renderResults(view?: string): void;
+  save(): void;
+  openFile(): void;
+}
+
+type Tab = QueryTab | TsTab | CypherTab | TableTab | ImportTab | HistoryTab | WelcomeTab;
 
 /** Placeholder for a tab field that its init() assigns before anything reads it. */
 const assignedInInit = <T,>(): T => undefined as T;
@@ -701,6 +723,7 @@ function renderTree(): void {
     for (const c of app.schema.connections) html += `<div class="tree-item" data-conn="${esc(c.connection_name)}" title="${esc(c.url)}"><span class="twisty"></span><span class="ico">${icon('connection')}</span><span class="nm">${esc(c.connection_name)}</span><span class="meta">${c.credentials ? '🔑' : ''}</span></div>`;
     html += '</div></div>';
   }
+  html += graphTreeHtml(filter);
   if (!html) {
     html = filter
       ? `<div class="tree-empty">Nothing matches “${esc(filter)}”.</div>`
@@ -713,9 +736,47 @@ function renderTree(): void {
   });
 }
 
+/** The explorer's Graph group: the workbench graph's labels and relationship types (smaltcy), and what to load. */
+function graphTreeHtml(filter: string): string {
+  const g = 'Graph';
+  const info = graphInfo();
+  const match = (n: string) => !filter || n.toLowerCase().includes(filter);
+  const labels = Object.entries(info?.stats.labels ?? {}).filter(([n]) => match(n));
+  const types = Object.entries(info?.stats.types ?? {}).filter(([n]) => match(n));
+  if (filter && !labels.length && !types.length) return '';
+  const collapsed = collapsedGroups.has(g);
+  let html = `<div class="tree-group${collapsed ? ' collapsed' : ''}" data-group="${g}"><div class="tree-label"><span>${collapsed ? '▸' : '▾'}</span>${g} <span class="count">${info ? fmtNum(info.stats.nodes) : ''}</span></div><div class="tree-items">`;
+  for (const [n, c] of labels.sort()) html += `<div class="tree-item" data-label="${esc(n)}" title="Nodes labelled ${esc(n)}: click to query them"><span class="twisty"></span><span class="ico">${icon('graph')}</span><span class="nm">:${esc(n)}</span><span class="meta">${fmtNum(c)}</span></div>`;
+  for (const [n, c] of types.sort()) html += `<div class="tree-item" data-reltype="${esc(n)}" title="Relationships of type ${esc(n)}: click to query them"><span class="twisty"></span><span class="ico">${icon('link')}</span><span class="nm">[:${esc(n)}]</span><span class="meta">${fmtNum(c)}</span></div>`;
+  if (!filter) {
+    html += `<div class="tree-graph-actions">${info && info.stats.nodes ? '' : '<span>The graph is empty.</span> '}<a href="#" data-graph="sample">Sample…</a> · <a href="#" data-graph="open">Open…</a>${info && info.stats.nodes ? ' · <a href="#" data-graph="export">Export</a>' : ''}</div>`;
+  }
+  return html + '</div></div>';
+}
+
 function wireTree() {
   const tree = $('#tree');
   tree.addEventListener('click', (e) => {
+    const ga = closest(e, '[data-graph]');
+    if (ga) {
+      e.preventDefault();
+      const what = ga.dataset.graph;
+      if (what === 'sample') void sampleGraphDialog();
+      else if (what === 'open') openGraphFile();
+      else void exportGraphFile();
+      return;
+    }
+    const lab = closest(e, '[data-label]');
+    const rel = closest(e, '[data-reltype]');
+    if (lab || rel) {
+      const name = (lab ?? rel)!.dataset[lab ? 'label' : 'reltype']!;
+      const q = /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : '`' + name.replace(/`/g, '``') + '`';
+      const cypher = lab ? `MATCH (n:${q})\nRETURN n\nLIMIT 100` : `MATCH p = ()-[:${q}]->()\nRETURN p\nLIMIT 100`;
+      const t = newCypherTab({ title: lab ? `:${name}` : `[:${name}]`, source: cypher });
+      void t.run('statement');
+      document.body.classList.remove('side-open');
+      return;
+    }
     const label = closest(e, '.tree-label');
     if (label) {
       const g = label.parentElement!.dataset.group!;
@@ -918,7 +979,8 @@ function activateTab(t: Tab): void {
   renderTabs();
   $('#tabs .tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   t.onShow?.();
-  $$('#tree .tree-item').forEach((el) => el.classList.toggle('active', el.dataset.obj! === t.objectName));
+  // Only objects belong to a tab: graph labels and connections have no data-obj, and most tabs no object name.
+  $$('#tree .tree-item').forEach((el) => el.classList.toggle('active', el.dataset.obj !== undefined && el.dataset.obj === t.objectName));
 }
 
 function closeTab(t: Tab, silent = false): void {
@@ -954,6 +1016,7 @@ function saveQueryTabs(): void {
   const tabs = app.tabs.filter((t): t is QueryTab => t.kind === 'query').map((t) => ({ title: t.title, sql: t.editor?.value ?? t.sql ?? '' }));
   prefs.set('queryTabs', tabs);
   prefs.set('tsTabs', app.tabs.filter((t): t is TsTab => t.kind === 'ts').map((t) => ({ title: t.title, source: t.editor?.value ?? t.source ?? '' })));
+  prefs.set('cypherTabs', app.tabs.filter((t): t is CypherTab => t.kind === 'cypher').map((t) => ({ title: t.title, source: t.editor?.value ?? t.source ?? '' })));
 }
 
 function insertIntoEditor(text: string): void {
@@ -1332,6 +1395,319 @@ function tsTab(title: string, source: string): TsTab {
     },
   } as TsTab;
   return tab;
+}
+
+// ================================================================ Cypher tab
+
+let cypherSeq = 0;
+const CYPHER_STARTER = `// Cypher on the workbench's graph (smaltcy). Load a sample graph from the Graph group in the explorer,
+// or a JSON file, then Ctrl+Enter runs the statement at the cursor.
+MATCH (n)
+RETURN n
+LIMIT 25
+`;
+
+function newCypherTab({ title, source }: { title?: string; source?: string } = {}): CypherTab {
+  const tab = cypherTab(title ?? `Cypher ${++cypherSeq}`, source ?? CYPHER_STARTER);
+  addTab(tab);
+  saveQueryTabs();
+  tab.editor.focus();
+  return tab;
+}
+
+/** What a write did, in words: "3 nodes created, 2 properties set"; '' when it wrote nothing. */
+function countsText(counts: Record<string, number> | undefined): string {
+  return Object.entries(counts ?? {})
+    .filter(([, n]) => typeof n === 'number' && n > 0)
+    .map(([k, n]) => {
+      const words = k.replace(/([A-Z])/g, ' $1').toLowerCase().split(' ');
+      const noun = n === 1 ? words[0].replace(/(ies|s)$/, (m) => (m === 'ies' ? 'y' : '')) : words[0];
+      return `${fmtNum(n)} ${noun} ${words.slice(1).join(' ')}`;
+    })
+    .join(', ');
+}
+
+function cypherTab(title: string, source: string): CypherTab {
+  const tab: CypherTab = {
+    id: 0,
+    el: blankPane(),
+    kind: 'cypher',
+    title,
+    icon: icon('graph'),
+    tooltip: `${title}: Cypher on the workbench's graph (double-click to rename)`,
+    source,
+    editor: assignedInInit<Editor>(),
+    results: [],
+    explain: null,
+    planData: null,
+    messages: [],
+    grids: [],
+    busy: false,
+    init() {
+      const el = this.el;
+      el.innerHTML = `
+        <div class="toolbar">
+          <button class="primary run-btn" data-run title="Run the statement at the cursor, or the selection (Ctrl+Enter)">▶ Run</button>
+          <button data-script title="Run every statement in the tab (Ctrl+Shift+Enter / F5)">▶▶ Script</button>
+          <button data-explain title="Show the plan of the statement at the cursor, without running it (Ctrl+E)">Explain</button>
+          <span class="sep"></span>
+          <button class="ghost" data-open title="Open a .cypher file">Open…</button>
+          <button class="ghost" data-save title="Save as .cypher (Ctrl+S)">Save</button>
+          <span class="grow"></span>
+          <span class="hint">Cypher · <a href="https://stenhoor.github.io/smaltcy/" target="_blank" rel="noopener">smaltcy</a> · <span data-graph-count></span></span>
+        </div>
+        <div class="qsplit">
+          <div class="ed-host"></div>
+          <div class="hsplitter" title="Drag to resize"></div>
+          <div class="results">
+            <div class="subtabs"></div>
+            <div class="subpanes"></div>
+          </div>
+        </div>`;
+      this.editor = new Editor($('.ed-host', el), {
+        value: this.source,
+        language: 'cypher',
+        cypherVocab: () => graphInfo()?.vocab ?? null,
+        onChange: debounce(() => saveQueryTabs(), 400),
+        keys: {
+          'Mod+Enter': () => void this.run('statement'),
+          'Shift+Mod+Enter': () => void this.run('script'),
+          F5: () => void this.run('script'),
+          'Mod+E': () => void this.run('explain'),
+          'Mod+S': () => this.save(),
+        },
+      });
+      const split = $('.qsplit', el);
+      split.style.setProperty('--ed-h', prefs.get('editorHeight', '42%'));
+      dragSplit(
+        $('.hsplitter', el),
+        (ev) => {
+          const r = split.getBoundingClientRect();
+          split.style.setProperty('--ed-h', Math.max(12, Math.min(85, ((ev.clientY - r.top) / r.height) * 100)) + '%');
+        },
+        () => prefs.set('editorHeight', split.style.getPropertyValue('--ed-h')),
+      );
+      $('[data-run]', el).onclick = () => void this.run('statement');
+      $('[data-script]', el).onclick = () => void this.run('script');
+      $('[data-explain]', el).onclick = () => void this.run('explain');
+      $('[data-save]', el).onclick = () => this.save();
+      $('[data-open]', el).onclick = () => this.openFile();
+      this.onSchema?.();
+      this.renderResults();
+    },
+    onShow() {
+      requestAnimationFrame(() => {
+        this.editor.render();
+        this.editor.focus();
+        this.grids.forEach((g) => g.renderRows(true));
+      });
+    },
+    onSchema() {
+      const i = graphInfo();
+      $('[data-graph-count]', this.el).textContent = i ? `${fmtNum(i.stats.nodes)} nodes · ${fmtNum(i.stats.relationships)} relationships` : 'the graph is empty';
+    },
+    setBusy(b: boolean) {
+      this.busy = b;
+      for (const sel of ['[data-run]', '[data-script]', '[data-explain]']) $(sel, this.el).disabled = b;
+      renderTabs();
+    },
+    /** Run the statement at the cursor (or the selection), every statement ('script'), or EXPLAIN the one at the cursor. */
+    async run(mode: 'statement' | 'script' | 'explain') {
+      if (this.busy) return;
+      const text = this.editor.value;
+      const sel = this.editor.selection();
+      const stmts = mode === 'script' ? splitCypher(text).map((s) => s.sql) : sel.trim() ? [sel] : [this.editor.currentStatement()?.sql ?? ''];
+      const todo = stmts.filter((s) => s.trim());
+      if (!todo.length) return void toast('Nothing to run', 'warn');
+      this.setBusy(true);
+      saveQueryTabs();
+      this.results = [];
+      this.explain = null;
+      this.planData = null;
+      const at = timeOfDay();
+      const t0 = now();
+      let wrote = false;
+      try {
+        const g = await graph();
+        for (const [i, stmt] of todo.entries()) {
+          const cypher = mode === 'explain' && !/^\s*EXPLAIN\b/i.test(stmt) ? `EXPLAIN ${stmt}` : stmt;
+          const t1 = now();
+          try {
+            const r = await g.run(cypher);
+            this.planData = planJson(r.plan);
+            const ms = now() - t1;
+            if (r.explain) {
+              this.explain = String(r.rows[0]?.[0] ?? '');
+              this.messages.unshift({ kind: 'ok', text: `Plan ready (${fmtMs(ms)})`, sql: stmt, at });
+              continue;
+            }
+            const wrote1 = countsText(r.counts as unknown as Record<string, number>);
+            if (wrote1) wrote = true;
+            if (r.columns.length) {
+              this.results.push({ title: todo.length > 1 ? `Result ${i + 1}` : 'Result', columns: [...r.columns], rows: r.rows.map((row) => row.map(cypherCell) as Row), values: r.rows, ms });
+            }
+            const what = [r.columns.length ? `${fmtNum(r.rows.length)} row${r.rows.length === 1 ? '' : 's'}` : '', wrote1, r.version !== undefined ? `version ${r.version}` : ''].filter(Boolean).join(', ');
+            this.messages.unshift({ kind: 'ok', text: `${what || 'done'} in ${fmtMs(ms)}`, sql: stmt, at });
+          } catch (e) {
+            this.messages.unshift({ kind: 'err', text: errText(e), sql: stmt, at });
+            const pos = (e as { position?: { offset?: number } }).position?.offset;
+            if (typeof pos === 'number' && todo.length === 1) {
+              const base = sel.trim() ? this.editor.selectionRange().start : (this.editor.currentStatement()?.start ?? 0);
+              const off = base + pos - (cypher.length - stmt.length);
+              this.editor.highlightRange(off, off + 1);
+            }
+            if (mode === 'script') break;
+          }
+        }
+        addHistory({ sql: `// Cypher\n${todo.join(';\n')}`, db: 'graph', at: Date.now(), ms: now() - t0 });
+        status(`Cypher: ${this.messages[0]?.text ?? 'done'}`, this.messages[0]?.kind === 'err' ? 'err' : '');
+        if (wrote || !graphInfo()) await refreshGraph();
+      } catch (e) {
+        this.messages.unshift({ kind: 'err', text: errText(e), sql: text, at });
+        status(errText(e), 'err');
+      } finally {
+        this.setBusy(false);
+        this.renderResults(this.explain !== null ? 'plan' : this.results.length ? 'r0' : 'messages');
+      }
+    },
+    renderResults(view = 'messages') {
+      const tabsEl = $('.subtabs', this.el);
+      const panes = $('.subpanes', this.el);
+      tabsEl.innerHTML = '';
+      panes.innerHTML = '';
+      this.grids = [];
+      const views: { key: string; label: string; badge?: string; err?: boolean; build: (pane: HTMLElement) => void }[] = [];
+      this.results.forEach((res, i) => {
+        views.push({
+          key: 'r' + i,
+          label: res.title,
+          badge: fmtNum(res.rows.length),
+          build: (pane) => {
+            const gh = pane.appendChild(h('<div class="grid"></div>'));
+            const grid = new Grid(gh, { onOpenValue: (r, c) => showValue(res.rows[r][c], res.columns[c]) });
+            grid.setData(res.columns, res.rows);
+            this.grids.push(grid);
+            pane.appendChild(h(`<div class="result-bar"><span>${fmtNum(res.rows.length)} row${res.rows.length === 1 ? '' : 's'} · ${res.columns.length} column${res.columns.length === 1 ? '' : 's'} · ${fmtMs(res.ms)}</span></div>`));
+          },
+        });
+      });
+      // Graph: every node, relationship and path in the results, drawn with smaltkit's graph view.
+      const drawn = this.results.filter((r) => hasGraphValues(r.values));
+      if (drawn.length) views.push({ key: 'graph', label: 'Graph', build: (pane) => void drawResultGraph(pane, drawn.flatMap((r) => r.values)) });
+      // Plan: EXPLAIN's steps, as smaltcy writes them.
+      if (this.explain !== null) views.push({ key: 'plan', label: 'Plan', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.explain) });
+      // Plan data: the graph plan Cypher compiled to, which smaltcy's engine ran.
+      if (this.planData) views.push({ key: 'plandata', label: 'Plan data', build: (pane) => void (pane.appendChild(h('<pre class="plan"></pre>')).textContent = this.planData) });
+      views.push({
+        key: 'messages',
+        label: 'Messages',
+        badge: this.messages.length ? String(this.messages.length) : '',
+        err: this.messages[0]?.kind === 'err',
+        build: (pane) => {
+          const box = pane.appendChild(h('<div class="messages"></div>'));
+          box.innerHTML = this.messages.length
+            ? this.messages.map((m) => `<div class="msg ${m.kind}"><span class="t">${m.at}</span><div><span class="b">${esc(m.text)}</span>${m.sql ? `<code class="q">${esc(m.sql.length > 140 ? m.sql.slice(0, 140) + '…' : m.sql)}</code>` : ''}</div></div>`).join('')
+            : `<div class="placeholder"><h3>Ready</h3>Write Cypher above and press <kbd>Ctrl</kbd>+<kbd>Enter</kbd> to run the statement at the cursor,<br><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> to run them all, or <kbd>Ctrl</kbd>+<kbd>E</kbd> to explain one. Results with nodes and relationships are drawn under <b>Graph</b>.<br><kbd>Ctrl</kbd>+<kbd>Space</kbd> completes keywords, labels, relationship types and property keys.</div>`;
+        },
+      });
+      for (const v of views) {
+        const b = h(`<button class="subtab${v.err ? ' err' : ''}" data-view="${v.key}">${esc(v.label)}${v.badge ? `<span class="badge">${esc(v.badge)}</span>` : ''}</button>`);
+        const pane = h(`<div class="subpane" data-pane="${v.key}"></div>`);
+        tabsEl.appendChild(b);
+        panes.appendChild(pane);
+        b.onclick = () => show(v.key);
+        // The graph view needs its pane on the page to size its canvas: it is built when first shown.
+        if (v.key !== 'graph') v.build(pane);
+        else pane.dataset.lazy = '1';
+      }
+      const show = (key: string) => {
+        $$('.subtab', tabsEl).forEach((x) => x.classList.toggle('active', x.dataset.view! === key));
+        $$('.subpane', panes).forEach((x) => x.classList.toggle('active', x.dataset.pane! === key));
+        const p = $$('.subpane', panes).find((x) => x.dataset.pane === key);
+        if (p?.dataset.lazy) {
+          delete p.dataset.lazy;
+          views.find((v) => v.key === key)?.build(p);
+        }
+        this.grids.forEach((g) => g.renderRows(true));
+      };
+      show(views.some((v) => v.key === view) ? view : views[0].key);
+    },
+    save() {
+      download((this.title.replace(/[^\w.-]+/g, '_') || 'graph') + '.cypher', this.editor.value, 'text/plain');
+    },
+    openFile() {
+      const input = h<HTMLInputElement>('<input type="file" accept=".cypher,.cyp,.cql,text/plain">');
+      input.onchange = async () => {
+        const f = input.files?.[0];
+        if (!f) return;
+        this.editor.replaceAll(await f.text());
+        this.title = f.name.replace(/\.(cypher|cyp|cql)$/, '');
+        renderTabs();
+        saveQueryTabs();
+      };
+      input.click();
+    },
+  } as CypherTab;
+  return tab;
+}
+
+/** Reads the graph's counts and vocabulary again, and shows them in the explorer and the Cypher tabs. */
+async function refreshGraph(): Promise<void> {
+  try {
+    await refreshGraphInfo();
+  } catch (e) {
+    toast(`Graph: ${errText(e)}`, 'err');
+  }
+  renderTree();
+  for (const t of app.tabs) if (t.kind === 'cypher') t.onSchema?.();
+}
+
+/** Load a sample graph (smaltcy's datasets) in place of the workbench's graph. */
+async function sampleGraphDialog(): Promise<void> {
+  const r = await modal<{ name: DatasetName; size?: number } | null>({
+    title: 'Load a sample graph',
+    body: `<p>Replace the workbench's graph with one of smaltcy's sample datasets. The SQL database is not touched.</p>
+      <label class="field"><span>Dataset</span><select name="ds">${DATASETS.map((d) => `<option value="${d.name}">${esc(d.name)}: ${esc(d.title)}</option>`).join('')}</select></label>
+      <label class="field"><span>Nodes (generated datasets)</span><input type="number" name="size" min="10" max="200000" placeholder="default"></label>`,
+    buttons: [{ label: 'Cancel', value: null }, { label: 'Load', primary: true, value: (f) => ({ name: f.ds.value as DatasetName, size: Number(f.size.value) || undefined }) }],
+  });
+  if (!r) return;
+  status(`Loading the ${r.name} graph…`);
+  try {
+    const d = await loadDataset(r.name, DATASETS.find((x) => x.name === r.name)?.sized ? r.size : undefined);
+    await refreshGraph();
+    toast(`Graph: ${r.name}, ${fmtNum(d.nodes)} nodes and ${fmtNum(d.relationships)} relationships`, 'ok');
+    status(`Graph: ${r.name} loaded in ${fmtMs(d.ms)}`);
+  } catch (e) {
+    toast(`Graph: ${errText(e)}`, 'err');
+  }
+}
+
+/** Open a graph from smaltcy's JSON, adding to the graph or in its place. */
+function openGraphFile(): void {
+  const input = h<HTMLInputElement>('<input type="file" accept=".json,application/json">');
+  input.onchange = async () => {
+    const f = input.files?.[0];
+    if (!f) return;
+    try {
+      const json = JSON.parse(await f.text()) as GraphJson;
+      const replace = await confirmBox('Open graph', `Replace the workbench's graph with <b>${esc(f.name)}</b>? Cancel adds it to the graph instead.`, 'Replace');
+      await loadGraphJson(json, replace);
+      await refreshGraph();
+      toast(`Graph: ${f.name} ${replace ? 'loaded' : 'added'}`, 'ok');
+    } catch (e) {
+      toast(`Graph: ${errText(e)}`, 'err');
+    }
+  };
+  input.click();
+}
+
+async function exportGraphFile(): Promise<void> {
+  try {
+    download('graph.json', JSON.stringify(await dumpGraph()), 'application/json');
+  } catch (e) {
+    toast(`Graph: ${errText(e)}`, 'err');
+  }
 }
 
 /** The plan statement smaltdf built, as JSON laid out to read (short parts on one line; bigints as digits). */
@@ -2711,9 +3087,12 @@ async function loadEnvironment(url: string | null, { manifest = null, force = fa
   }
   await refreshSchema();
   app.env = m;
+  if (m.graph) await loadEnvironmentGraph(m);
   for (const q of m.queries ?? []) {
     if (q.lang === 'ts') {
       if (!app.tabs.some((t) => t.kind === 'ts' && t.editor?.value.trim() === q.sql.trim())) newTsTab({ title: q.title, source: q.sql });
+    } else if (q.lang === 'cypher') {
+      if (!app.tabs.some((t) => t.kind === 'cypher' && t.editor?.value.trim() === q.sql.trim())) newCypherTab({ title: q.title, source: q.sql });
     } else if (!app.tabs.some((t) => t.kind === 'query' && t.editor?.value.trim() === q.sql.trim())) newQueryTab({ title: q.title, sql: q.sql });
   }
   for (const t of m.open ?? []) if (app.schema.tables.has(t)) openTableTab(t);
@@ -2722,6 +3101,26 @@ async function loadEnvironment(url: string | null, { manifest = null, force = fa
   for (const t of [...app.tabs]) if (t.kind === 'welcome') closeTab(t, true);
   status(`Environment “${m.name ?? dbName}” ready${fresh ? '' : ' (already initialised; use Load to rebuild)'}`);
   toast(`Environment “${m.name ?? dbName}” ready`, 'ok');
+}
+
+/** An environment's graph (`graph` in the manifest): a sample dataset, or smaltcy's JSON from a URL. */
+async function loadEnvironmentGraph(m: Manifest): Promise<void> {
+  const g = m.graph!;
+  try {
+    if (g.dataset) {
+      if (!DATASETS.some((d) => d.name === g.dataset)) throw new Error(`no sample graph named “${g.dataset}”`);
+      status(`Loading the ${g.dataset} graph…`);
+      await loadDataset(g.dataset as DatasetName, g.size);
+    } else if (g.url) {
+      const url = new URL(g.url, m.__base ?? location.href).href;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`cannot load ${url}: HTTP ${r.status}`);
+      await loadGraphJson((await r.json()) as GraphJson, true);
+    }
+  } catch (e) {
+    toast(`Environment graph: ${errText(e)}`, 'err');
+  }
+  await refreshGraph();
 }
 
 async function exportEnvironmentDialog(): Promise<void> {
@@ -2738,8 +3137,8 @@ async function exportEnvironmentDialog(): Promise<void> {
     if (r === 'sql') return download(`${app.dbName}.sql`, await exportSqlDump(app.db), 'application/sql');
     const queries = r.queries
       ? app.tabs
-          .filter((t): t is QueryTab | TsTab => (t.kind === 'query' || t.kind === 'ts') && !!t.editor.value.trim())
-          .map((t) => (t.kind === 'ts' ? { title: t.title, sql: t.editor.value, lang: 'ts' as const } : { title: t.title, sql: t.editor.value }))
+          .filter((t): t is QueryTab | TsTab | CypherTab => (t.kind === 'query' || t.kind === 'ts' || t.kind === 'cypher') && !!t.editor.value.trim())
+          .map((t) => (t.kind === 'query' ? { title: t.title, sql: t.editor.value } : { title: t.title, sql: t.editor.value, lang: t.kind }))
       : [];
     const m = await exportManifest(db(), { name: r.name, dbName: app.dbName ?? 'smaltui', includeData: r.data, queries });
     download(`${app.dbName}.env.json`, JSON.stringify(m, null, 2), 'application/json');
@@ -2826,6 +3225,7 @@ function welcomeTab(): WelcomeTab {
         <div class="quick">
           <button data-q="query"><b>${icon('query')} New query</b><span>Write SQL with highlighting, completion and bind variables.</span></button>
           <button data-q="ts"><b>${icon('typescript')} New TypeScript tab</b><span>Query with smaltdf: frames and expressions in TypeScript, run in the engine.</span></button>
+          <button data-q="cypher"><b>${icon('graph')} New Cypher tab</b><span>Query a graph with Cypher (smaltcy): results as tables and as a drawn graph.</span></button>
           <button data-q="import"><b>${icon('import')} Import a file</b><span>Load CSV, TSV, JSON, NDJSON or Parquet into a table.</span></button>
           <button data-q="link"><b>${icon('external')} Link a source</b><span>Query a file or URL in place as an external table.</span></button>
           <button data-q="demo"><b>${icon('welcome')} Open the demo</b><span>A sample environment with tables, a view and saved queries.</span></button>
@@ -2839,6 +3239,7 @@ function welcomeTab(): WelcomeTab {
         const q = b.dataset.q!;
         if (q === 'query') newQueryTab();
         else if (q === 'ts') newTsTab();
+        else if (q === 'cypher') newCypherTab();
         else if (q === 'import') openImportTab('import');
         else if (q === 'link') openImportTab('link');
         else if (q === 'db') dbPicker();
@@ -2914,6 +3315,7 @@ function toggleTheme() {
   const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
   root.dataset.theme = dark ? 'light' : 'dark';
   prefs.set('theme', root.dataset.theme);
+  setGraphTheme();
 }
 
 function wireChrome() {
@@ -2922,6 +3324,7 @@ function wireChrome() {
   $$<HTMLElement>('[data-icon]').forEach((el) => el.insertAdjacentHTML('afterbegin', icon(el.dataset.icon as IconName)));
   $('#btnNewQuery').onclick = () => newQueryTab();
   $('#btnNewTs').onclick = () => newTsTab();
+  $('#btnNewCypher').onclick = () => newCypherTab();
   $('#btnImport').onclick = () => openImportTab();
   $('#btnHistory').onclick = () => openHistoryTab();
   $('#btnMore').onclick = () => ($('#moreMenu').hidden = !$('#moreMenu').hidden);
@@ -2933,6 +3336,9 @@ function wireChrome() {
     if (act === 'export-env') exportEnvironmentDialog();
     else if (act === 'export-sql') exportSqlDump(db()).then((s) => download(`${app.dbName}.sql`, s, 'application/sql')).catch((err) => toast(errText(err), 'err'));
     else if (act === 'load-env') openImportTab('env');
+    else if (act === 'graph-sample') sampleGraphDialog();
+    else if (act === 'graph-open') openGraphFile();
+    else if (act === 'graph-export') exportGraphFile();
     else if (act === 'engine') engineDialog();
     else if (act === 'theme') toggleTheme();
     else if (act === 'shortcuts') shortcutsDialog();
@@ -2996,8 +3402,14 @@ async function init() {
     const n = /^TypeScript (\d+)$/.exec(t.title);
     if (n) tsSeq = Math.max(tsSeq, Number(n[1]));
   }
+  const savedCypher = prefs.get<{ title: string; source: string }[]>('cypherTabs', []);
+  for (const t of savedCypher) {
+    const n = /^Cypher (\d+)$/.exec(t.title);
+    if (n) cypherSeq = Math.max(cypherSeq, Number(n[1]));
+  }
   const restoreTsTabs = () => {
     for (const t of savedTs) addTab(tsTab(t.title, t.source));
+    for (const t of savedCypher) addTab(cypherTab(t.title, t.source));
   };
   const envUrl = params.get('env');
   try {

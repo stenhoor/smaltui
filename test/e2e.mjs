@@ -427,6 +427,72 @@ try {
     }
   });
 
+  await step('Cypher tab: the environment graph, tables and text, the graph drawn, plan, plan data, completion, errors', async () => {
+    const cdn = [];
+    const onRequest = (r) => /^https:\/\/(cdn\.jsdelivr\.net|unpkg\.com|esm\.sh)\//.test(r.url()) && cdn.push(r.url());
+    page.on('request', onRequest);
+    await page.goto(base + '?env=envs/demo/env.json');
+    await page.waitForFunction(() => window.smaltui?.db && window.smaltui.schema.tables.has('orders'), null, { timeout: 20000 });
+    // The demo's graph (smaltcy's social sample) is in the explorer, by label and relationship type.
+    await page.waitForSelector('#tree [data-label="Person"]', { timeout: 30000 });
+    const tree = await page.locator('[data-group="Graph"]').innerText();
+    if (!/:Person\s+12/.test(tree) || !/\[:KNOWS\]\s+14/.test(tree)) throw new Error('graph group: ' + tree);
+    await page.locator('.tab', { hasText: 'Graph (Cypher)' }).click();
+    if (!/22 nodes · 39 relationships/.test(await activePane().locator('[data-graph-count]').innerText())) throw new Error('graph count');
+    // The statement at the cursor: a table.
+    await activePane().locator('textarea.ed-input').click({ position: { x: 80, y: 50 } });
+    await page.keyboard.press('Control+Enter');
+    await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent.startsWith('Result'), null, { timeout: 20000 });
+    const cities = await activePane().locator('.subpane.active tbody').innerText();
+    if (!/London\s+3/.test(cities)) throw new Error('cities: ' + cities);
+    // The whole script: the second statement returns paths, shown as text and drawn under Graph.
+    await page.keyboard.press('Control+Shift+Enter');
+    await page.waitForFunction(() => [...document.querySelectorAll('.pane.active .subtab')].some((b) => b.textContent === 'Graph'), null, { timeout: 20000 });
+    await activePane().locator('.subtab', { hasText: 'Result 2' }).click();
+    const path = await activePane().locator('.subpane.active tbody tr').first().innerText();
+    if (!/\(:Person \{name: 'Ada', born: 1815\}\)-\[:KNOWS \{since: 1833\}\]->\(:Person/.test(path)) throw new Error('path cell: ' + path);
+    await activePane().locator('.subtab', { hasText: 'Graph' }).click();
+    // A canvas with the graph view, or (a browser without WebGPU) a note that says so.
+    await page.waitForFunction(() => {
+      const pane = document.querySelector('.pane.active .subpane.active');
+      return pane?.querySelector('canvas.cy-graph-canvas') || /needs WebGPU/.test(pane?.textContent ?? '');
+    }, null, { timeout: 20000 });
+    const drawn = await activePane().locator('.subpane.active').innerText();
+    if (!/WebGPU/.test(drawn) && !/12 nodes · 14 relationships/.test(drawn)) throw new Error('graph view: ' + drawn);
+    // Plan data: the graph plan Cypher compiled to.
+    await activePane().locator('.subtab', { hasText: 'Plan data' }).click();
+    const plan = JSON.parse(await activePane().locator('.subpane.active pre').innerText());
+    if (plan.kind !== 'query' || plan.planVersion !== 1) throw new Error('plan data: ' + JSON.stringify(plan).slice(0, 200));
+    // Explain: smaltcy's plan of the statement at the cursor.
+    await activePane().locator('textarea.ed-input').click({ position: { x: 80, y: 50 } });
+    await activePane().locator('[data-explain]').click();
+    await page.waitForFunction(() => document.querySelector('.pane.active .subtab.active')?.textContent === 'Plan', null, { timeout: 20000 });
+    if (!/NodeByLabelScan/.test(await activePane().locator('.subpane.active pre').innerText())) throw new Error('explain');
+    // Completion: labels after a colon in a node pattern.
+    await activePane().locator('textarea.ed-input').fill('MATCH (n:Pe');
+    await page.keyboard.press('Control+Space');
+    await page.waitForSelector('.pane.active .ed-complete:not([hidden])', { timeout: 5000 });
+    if (!/Person/.test(await activePane().locator('.ed-complete').innerText())) throw new Error('completion');
+    await page.keyboard.press('Escape');
+    // A syntax error: the message, and the place marked in the editor.
+    await activePane().locator('textarea.ed-input').fill('MATCH (n RETURN n');
+    await page.keyboard.press('Control+Enter');
+    await page.waitForSelector('.pane.active .msg.err', { timeout: 10000 });
+    if (!/Expected '\)', found 'RETURN'/.test(await activePane().locator('.msg.err').first().innerText())) throw new Error('error message');
+    if ((await activePane().locator('.ed-hl mark').first().innerText()) !== 'R') throw new Error('error mark');
+    // A write updates the graph's counts; a label in the explorer opens a tab with its nodes.
+    await activePane().locator('textarea.ed-input').fill("CREATE (:Robot {name: 'Robbie'})");
+    await page.keyboard.press('Control+Enter');
+    await page.waitForFunction(() => /23 nodes/.test(document.querySelector('.pane.active [data-graph-count]')?.textContent ?? ''), null, { timeout: 10000 });
+    await page.locator('#tree [data-label="Robot"]').click();
+    await page.waitForFunction(() => document.querySelector('.tab.active')?.textContent.includes(':Robot') && /Robbie/.test(document.querySelector('.pane.active .subpane.active')?.textContent ?? ''), null, { timeout: 20000 });
+    const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('smaltui.cypherTabs') ?? '[]'));
+    if (!kept.some((t) => t.title === ':Robot')) throw new Error('Cypher tab not kept: ' + JSON.stringify(kept));
+    page.off('request', onRequest);
+    if (cdn.length) throw new Error('loaded from a CDN: ' + cdn.join(', '));
+  });
+  await shot('06c-cypher');
+
   await step('export environment round-trips', async () => {
     const m = await page.evaluate(async () => {
       const { exportManifest } = await import('/app/env.js');

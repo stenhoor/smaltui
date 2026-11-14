@@ -48,6 +48,14 @@ database (schema, data, linked sources, saved queries) when it opens.
   checker, in a worker) checks its calls into smaltdf against smaltdf's declarations and marks TypeScript's errors as
   warnings; the tab still runs. Format re-indents the code (`smaltkit/pretty`). Kept with the tabs,
   saved as `.ts` files, and carried in manifests as queries with `"lang": "ts"`.
+- **Cypher tabs** (**Cypher**): Cypher on the workbench's graph, kept by [smaltcy](https://stenhoor.github.io/smaltcy/)
+  in a worker of its own beside the SQL database (in memory: load a sample dataset, a JSON file or an environment's
+  `"graph"`, export it as JSON). Run the statement at the cursor (`Ctrl+Enter`), the script (`Ctrl+Shift+Enter`) or
+  Explain (`Ctrl+E`). Each result is a grid, with nodes, relationships and paths written in Cypher's notation; **Graph**
+  draws them with `smaltkit/graph` (WebGPU, 2D and 3D, force or fixed layout), and **Plan data** shows the graph plan
+  smaltcy ran. The editor completes labels, relationship types and property keys (`smaltkit/cypher`). The explorer's
+  **Graph** group lists labels and types with their counts. Kept with the tabs, saved as `.cypher` files, and carried in
+  manifests as queries with `"lang": "cypher"`.
 - **Table viewer:** paged data with server-side sorting (click a header) and a free-form `WHERE` filter. Columns,
   indexes, constraints and highlighted DDL. For external tables it shows the source; for materialized views, refresh
   controls. In tables with a primary key you can edit a cell (double-click or `Enter`; `Ctrl+Delete` sets NULL),
@@ -143,6 +151,10 @@ It also bundles `vendor/smaltdf/smaltdf.js` (smaltdf), which TypeScript tabs loa
 `prepare()`), which the checker reads in place of parsing their text, and `vendor/smaltdf/types.json` their text, which
 the checker's worker fetches only if its smaltty can't read the buffer. The worker starts, and warms itself, while the
 page is idle after it opens, so a tab's first check takes a few milliseconds.
+
+And it bundles `vendor/smaltcy/` from the pinned `@smaltworks/smaltcy`: `smaltcy.js` (its client) and
+`smaltcy-worker.js` (the worker that keeps the workbench's graph and runs Cypher), which Cypher tabs start on first use.
+Their graph view is `smaltkit/graph`, from `vendor/smaltkit/`.
 
 `vendor/` is generated, not committed. The page loads the engine from there, from the same origin, so it works offline
 and under cross-origin isolation.
@@ -250,7 +262,8 @@ index.html            workbench page shell (served at /workbench/ in the built s
 docs/                 the product site (VitePress on the smaltworks docs theme): home page and guide
 site/                 the live console page (console.html, demo.ts), a page of its own
 app/main.ts           application: tabs, explorer, query runner, table viewer, import, history
-app/editor.ts         code editor (highlight overlay, completion, shortcuts): SQL, and TypeScript for smaltdf tabs
+app/editor.ts         code editor (highlight overlay, completion, shortcuts): SQL, TypeScript for smaltdf tabs, and Cypher
+app/cypher.ts         the workbench's graph (smaltcy in a worker), Cypher result cells and the result graph view
 app/grid.ts           virtualized data grid
 app/sql.ts            tokenizer, statement splitter, parameter scanner, formatter
 app/ts.ts             TypeScript tokenizer, highlighting and last-expression split (TypeScript tabs)
@@ -262,6 +275,7 @@ site/demo.ts          the live console
 (app|site)/*.js       compiled output (npm run compile; not committed)
 vendor/smaltdb/       engine: smaltdb, smaltql, smaltdf's language and plugins, bundled by npm run deps (not committed)
 vendor/smaltdf/       smaltdf for TypeScript tabs, and its declarations for the type checker, bundled by npm run deps (not committed)
+vendor/smaltcy/       smaltcy's client and worker for Cypher tabs, bundled by npm run deps (not committed)
 vendor/smaltkit/      shared modules (engine loader and OPFS catalog, data-URL rewriting, CORS hints, TypeScript type stripping and checking), copied from node_modules/smaltkit on install (not committed)
 envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)
