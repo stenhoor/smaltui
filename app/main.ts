@@ -995,13 +995,18 @@ const loadDf = () =>
 type TypeCheckModule = typeof import('../vendor/smaltkit/typecheck.js');
 let checkerLoad: Promise<{ check(code: string): Promise<{ start: number; end: number; message: string }[] | null> } | null> | null = null;
 const typesUrl = (file: string) => new URL(`../vendor/smaltdf/${file}`, import.meta.url);
-/** The checker's setup: the prepared declarations, with the text as the fallback; the text alone if there is no buffer. */
+/**
+ * The checker's setup: the prepared declarations, with the text as the fallback; the text alone if there is no buffer.
+ * Checked through syntax errors (`syntax: 'tolerant'`, smaltty 0.14.0): a line being typed that doesn't parse yet is a
+ * warning, and the rest of the tab is still checked. A tab's syntax errors are otherwise only reported when it runs.
+ */
 const checkerSetup = () =>
   fetch(typesUrl('types.bin'))
     .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`types.bin: ${r.status}`))))
     // The names a tab's code is checked with, as scripts/vendor-smaltdb.mjs writes them in types.json.
     .then((prepared) => ({ files: {}, packages: { '@smaltdb/df': '/df/index.d.ts' }, globals: ['/tab.d.ts'], prepared, fallback: typesUrl('types.json').href }))
-    .catch(() => fetch(typesUrl('types.json')).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`types.json: ${r.status}`)))));
+    .catch(() => fetch(typesUrl('types.json')).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`types.json: ${r.status}`)))))
+    .then((setup) => ({ ...setup, syntax: 'tolerant' as const }));
 const loadChecker = () =>
   (checkerLoad ??= Promise.all([
     import(/* @vite-ignore */ new URL('../vendor/smaltkit/typecheck.js', import.meta.url).href) as Promise<TypeCheckModule>,
@@ -1023,7 +1028,9 @@ function typeCheckTab(tab: TsTab): void {
     .then((checker) => checker?.check(code))
     .then((warnings) => {
       if (!warnings || tab.editor.value !== code) return;
-      tab.editor.setWarnings(warnings);
+      // A syntax error can be at a point, not on text (a ',' expected at the end of the file): it marks the character
+      // before it, so it can be seen.
+      tab.editor.setWarnings(warnings.map((w) => (w.end > w.start || w.start === 0 ? w : { ...w, start: w.start - 1 })));
       tab.el.dataset.checked = code; // the code last checked, for the tests
     })
     .catch(() => {}); // a checker that fails leaves the tab without warnings
