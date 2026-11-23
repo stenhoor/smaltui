@@ -13,11 +13,9 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      # Playwright before deps: `npm install --no-save playwright` resets node_modules to the lockfile, which takes
-      # out the pinned packages (smaltdb 0.9, smaltql, ...) that test/docs-examples.mjs imports. deps keeps Playwright.
-      - run: scripts/install-chromium.sh   # Chromium, without its system packages if the Ubuntu archive is unreachable
       - run: npm run deps   # build the smaltdb 0.9 packages pinned in packed.json (not on npm yet) and vendor them
       - run: npm run typecheck
       - name: brand/ matches stenhoor/smalt-brand at its pinned commit
         run: node scripts/sync-brand.mjs --check
+      - run: scripts/install-chromium.sh   # Chromium, without its system packages if the Ubuntu archive is unreachable
       - run: npm test
