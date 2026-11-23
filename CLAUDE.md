@@ -30,22 +30,25 @@ npm run serve          # compile once, then the workbench, http://localhost:8080
 npm run preview        # build, then serve it at /smaltui/ (site, console.html, workbench/), as deployed
 npm run docs:dev       # the site (docs/) with live reload
 npm run build          # assemble the site in dist/
-npm test               # test/e2e.mjs in headless Chromium (needs Playwright, see below)
+npm test               # test/docs-examples.mjs, then test/e2e.mjs in headless Chromium (needs Playwright, see below)
+npm run test:docs      # every example in docs/ against the result printed under it (UPDATE_DOCS=1 writes them)
 node test/smoke.mjs <url>   # check a deployed site; the Pages workflow runs it after each deploy
 node scripts/fetch-packed.mjs --local smaltdb=../smaltdb && npm run vendor   # try a local smaltdb checkout
 npm run brand:sync -- --ref <commit>   # update brand/ from stenhoor/smalt-brand (CI: node scripts/sync-brand.mjs --check)
 ```
 
-Playwright is not a project dependency. CI installs it before `npm test`:
+Playwright is not a project dependency. CI installs it in `.cache/playwright`, outside `node_modules` (an
+`npm install --no-save` resets `node_modules` and would remove the pinned packages), and the tests find it through
+`NODE_PATH`:
 
 ```bash
-scripts/install-chromium.sh   # npm install --no-save playwright, then Chromium with its system packages (without them if the archive is unreachable)
+scripts/install-chromium.sh   # Playwright in .cache/playwright (exported as NODE_PATH), then Chromium with its system packages (without them if the archive is unreachable)
 ```
 
 ## Repo map
 
 - `app/` is the workbench, `docs/` the product site (VitePress on smalt-brand's docs theme, like smaltworks.dev and
-  smaltbi), `site/` the standalone live console page, `envs/` the environments (demo data and manifests).
+  smaltbi, to its documentation standard: playgrounds, tested examples and docs for agents, see the README's Deploy), `site/` the standalone live console page, `envs/` the environments (demo data and manifests).
 - Sources are TypeScript (strict): edit `app/*.ts` and `site/*.ts`. `scripts/compile.mjs` writes a `.js` beside each one
   (gitignored), which the pages load. Keep imports as `./name.js` (they resolve to the `.ts` when type checking).
 - `scripts/` holds the vendor, build and serve scripts. `test/e2e.mjs` is the test suite (`npm test`); it also runs

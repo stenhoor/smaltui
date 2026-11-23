@@ -1,3 +1,9 @@
+---
+description: 'Cypher tabs: query the workbench graph with Cypher on smaltcy, with results as tables, text and a graph drawn on the GPU.'
+play:
+  dataset: social
+---
+
 # Cypher tabs (smaltcy)
 
 Beside its SQL and TypeScript tabs, the workbench has Cypher tabs (**Cypher** in the header): an editor for Cypher on
@@ -5,15 +11,31 @@ the workbench's graph, kept by [smaltcy](https://stenhoor.github.io/smaltcy/), t
 browser. A result shows as tables and text, and when it holds nodes, relationships or paths, as a graph drawn on the
 GPU. The **Demo** has one: its **Graph (Cypher)** tab, on smaltcy's social sample.
 
+The examples on this page run on that sample. Press **Run**: the first returns a table, the second paths, drawn as a
+graph under it where the browser offers WebGPU.
+
 ```cypher
 MATCH (p:Person)-[:LIVES_IN]->(c:City)
 RETURN c.name AS city, count(p) AS people
-ORDER BY people DESC, city;
-
-MATCH path = (a:Person)-[:KNOWS]->(b:Person)
-RETURN path
-LIMIT 50;
+ORDER BY people DESC, city
 ```
+
+| city | people |
+| --- | --- |
+| London | 3 |
+| New York | 3 |
+| Palo Alto | 3 |
+| Boston | 2 |
+| Austin | 1 |
+
+```cypher
+MATCH path = (a:Person {name: 'Ada'})-[:KNOWS]->(b:Person)
+RETURN path
+```
+
+| path |
+| --- |
+| (:Person {name: 'Ada', born: 1815})-[:KNOWS {since: 1833}]->(:Person {name: 'Alan', born: 1912}) |
 
 ## The graph
 

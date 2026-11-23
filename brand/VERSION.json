@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/stenhoor/smalt-brand",
-  "commit": "9555afa1b660d7eb4a9ce4aaa2beda4c56cbadec",
+  "commit": "f1f65a979901d555ab9f4a448b17f6dba79c3fed",
   "files": [
     "tokens/tokens.css",
     "logos/smaltui/app-icon.svg",
@@ -25,6 +25,8 @@
     "themes/vitepress/smaltdb.css",
     "themes/vitepress/shiki.ts",
     "themes/vitepress/smaltworks.ts",
-    "themes/vitepress/stage.ts"
+    "themes/vitepress/stage.ts",
+    "themes/vitepress/playground.ts",
+    "themes/vitepress/agents.ts"
   ]
 }

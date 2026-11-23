@@ -1,3 +1,7 @@
+---
+description: 'The engine smaltui runs (smaltdb, smaltql and plugins, pinned to commits), how to build it, and how to host the site.'
+---
+
 # Engine and deploy
 
 ## The engine

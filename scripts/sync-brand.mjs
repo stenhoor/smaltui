@@ -42,6 +42,10 @@ const FILES = [
   // The smaltworks menu and footer, and the stage and "A smaltworks project" badges (BRAND.md, "Sites and READMEs").
   'themes/vitepress/smaltworks.ts',
   'themes/vitepress/stage.ts',
+  // Documentation standard (BRAND.md, "Documentation"): examples that run in place (rule 7), and Markdown for agents
+  // beside the pages, /llms.txt and /agents.md (rule 9).
+  'themes/vitepress/playground.ts',
+  'themes/vitepress/agents.ts',
 ];
 
 const args = process.argv.slice(2);

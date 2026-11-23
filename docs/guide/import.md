@@ -1,6 +1,10 @@
+---
+description: 'Import CSV, TSV, JSON, NDJSON or Parquet into a table, or link a file or URL as an external table read in place.'
+---
+
 # Import and link data
 
-The **⇣ Import** tab brings data in two ways.
+The **Import** tab (**Import** in the header) brings data in two ways.
 
 ## Import into a table
 

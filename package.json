@@ -15,7 +15,8 @@
     "build": "node scripts/build.mjs",
     "serve": "node scripts/compile.mjs && node scripts/serve.mjs",
     "preview": "node scripts/build.mjs .cache/preview/smaltui && node scripts/serve.mjs .cache/preview",
-    "test": "node scripts/compile.mjs && node test/e2e.mjs",
+    "test": "node scripts/compile.mjs && node test/docs-examples.mjs && node test/e2e.mjs",
+    "test:docs": "node test/docs-examples.mjs",
     "deps": "node scripts/fetch-packed.mjs && node scripts/vendor-smaltdb.mjs && node scripts/compile.mjs",
     "docs:dev": "vitepress dev docs"
   },
