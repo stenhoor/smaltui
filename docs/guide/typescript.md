@@ -1,8 +1,16 @@
+---
+description: 'TypeScript tabs: query the open database with smaltdf, the dataframe language, in TypeScript. Frames run as plans in the engine.'
+---
+
 # TypeScript tabs (smaltdf)
 
-Beside its SQL tabs, the workbench has TypeScript tabs (**ƒ TypeScript**): an editor for
+Beside its SQL tabs, the workbench has TypeScript tabs (**TypeScript** in the header): an editor for
 [smaltdf](https://stenhoor.github.io/smaltdf/), smaltdb's dataframe language. Frames and expressions build plans that
 run in the same engine as SQL, on the same database. The **Demo** has one: its **Frames (smaltdf)** tab.
+
+The examples on this page run on two small tables, `products` and `orders`, which each Run creates first.
+
+<!-- docs:setup CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, category TEXT, price REAL); INSERT INTO products VALUES (1, 'Assam', 'Tea', 6.5), (2, 'Sencha', 'Tea', 7.25), (3, 'Espresso', 'Coffee', 8.0); CREATE TABLE orders (id INTEGER PRIMARY KEY, product_id INTEGER, quantity INTEGER, status TEXT); INSERT INTO orders VALUES (1, 1, 2, 'shipped'), (2, 3, 1, 'shipped'), (3, 2, 4, 'cancelled'), (4, 1, 1, 'shipped'), (5, 2, 3, 'shipped'); -->
 
 ```ts
 const lines = table('orders')
@@ -10,9 +18,25 @@ const lines = table('orders')
   .join(table('products'), { leftOn: 'product_id', rightOn: 'id' })
   .withColumns(col('quantity').mul(col('price')).alias('amount'));
 
-show(lines.groupBy('category').agg(col('amount').sum().alias('revenue'), len()), 'By category');
+lines
+  .groupBy('category')
+  .agg(col('amount').sum().alias('revenue'), len().alias('lines'))
+  .sort('revenue', { descending: true })
+```
 
-lines.sort('amount', { descending: true }).head(10)
+| category | revenue | lines |
+| --- | --- | --- |
+| Tea | 41.25 | 3 |
+| Coffee | 8 | 1 |
+
+A write is a plan too. Its result is the number of rows it changed:
+
+```ts
+update('products', { set: { price: col('price').mul(2) }, where: col('category').eq('Tea') })
+```
+
+```text
+2 row(s) written
 ```
 
 ## Running

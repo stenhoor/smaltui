@@ -12,19 +12,24 @@
 
 **Small. Alternative. Query.**
 
-A query workbench for [smaltdb](https://smaltdb.dev) that runs entirely in the browser. smaltui is in the spirit of Toad:
-an object explorer, tabbed SQL editors, data grids you can browse and edit, and import tools. It is a **static site**:
-the engine runs in a Web Worker in each visitor's browser, and databases are stored in that browser's private storage
-(OPFS) or in memory.
+A query workbench for smaltdb that runs entirely in the browser.
+
+[Documentation](https://stenhoor.github.io/smaltui/) · [Demo](https://stenhoor.github.io/smaltui/workbench/?env=envs/demo/env.json) · [For AI agents](https://stenhoor.github.io/smaltui/guide/agents) · [smaltworks.dev](https://smaltworks.dev)
+
+smaltui is an object explorer, editor tabs for SQL ([smaltql](https://stenhoor.github.io/smaltql/)), TypeScript
+([smaltdf](https://stenhoor.github.io/smaltdf/)) and Cypher ([smaltcy](https://stenhoor.github.io/smaltcy/)), data grids
+you can browse and edit, and import tools, all on [smaltdb](https://smaltdb.dev). It is a **static site**: the engine
+runs in a Web Worker in each visitor's browser, and databases are stored in that browser's private storage (OPFS) or in
+memory.
 
 <a href="https://smaltdb.dev"><picture><source media="(prefers-color-scheme: dark)" srcset="brand/badges/powered-by-smaltdb-on-dark.svg"><img alt="Powered by smaltdb" src="brand/badges/powered-by-smaltdb.svg" width="172" height="28"></picture></a>
 
 Serve the folder from any static host and you have a live environment. Add `?env=…` and the page builds a ready-made
 database (schema, data, linked sources, saved queries) when it opens.
 
-**Live demo:** the site's **Demo** opens the workbench on the demo database:
-<https://stenhoor.github.io/smaltui/workbench/?env=envs/demo/env.json>. The site, with the guide, is at
-<https://stenhoor.github.io/smaltui/>.
+The site's **Demo** opens the workbench on the demo database. The [documentation](https://stenhoor.github.io/smaltui/)
+has a quick start, a guide, a reference and playgrounds, and publishes Markdown for agents:
+[`llms.txt`](https://stenhoor.github.io/smaltui/llms.txt) and [`agents.md`](https://stenhoor.github.io/smaltui/agents.md).
 
 ## Features
 
@@ -182,7 +187,21 @@ dist/workbench/                           the workbench: index.html, app/, vendo
 
 The site is built the way smaltworks.dev and smaltbi's site are: VitePress with smalt-brand's docs theme
 (`brand/themes/vitepress/`, synced verbatim), the work-in-progress badge under the hero, and the smaltworks badges in
-the footer. `npm run docs:dev` serves it with live reload (without the workbench beside it).
+the footer. `npm run docs:dev` serves it with live reload (without the workbench beside it). It follows smalt-brand's
+documentation standard (BRAND.md, "Documentation"):
+
+- **Sections:** Quick start, Getting started, User guide and Reference, in the nav and the sidebar, with Demo first and
+  a Playground page.
+- **Playgrounds:** every SQL, TypeScript and Cypher example runs where it stands, with the site kit's `playground.ts`
+  and smaltui's runners (`docs/.vitepress/theme/runners.ts`): smaltql, smaltdf and smaltcy from the site's own build,
+  each Run in a fresh database (Cypher on the sample dataset the page names). A Cypher result's graph is drawn under it.
+- **Examples are tests:** `test/docs-examples.mjs` (`npm run test:docs`, part of `npm test`) runs every example as the
+  playground runs it (`docs/.vitepress/theme/examples.ts`, shared) and checks the result printed under it.
+  `UPDATE_DOCS=1 npm run test:docs` writes the results. Markers: `<!-- docs:setup SQL -->` (data for the page's SQL and
+  TypeScript examples), `<!-- docs:error CODE -->`, `<!-- docs:skip -->`; a page's front matter `play: { dataset }`
+  names the Cypher sample. A TypeScript example is run and gets a playground when a result follows it.
+- **Docs for agents:** the kit's `agents.ts` writes a Markdown twin of every page, `llms.txt` and `agents.md` (opened by
+  `docs/guide/agents.md`) at the end of the build. `test/smoke.mjs` checks them on the live site.
 
 The build stamps every CSS and JS reference of the console and the workbench with a version (`styles.css?v=<hash>`), so
 after a deploy browsers fetch the new files instead of reusing cached ones; VitePress hashes its own assets.
@@ -259,7 +278,8 @@ the Chevron mark, the Kiln palette, Geist / Geist Mono / Martian Mono, and the t
 
 ```
 index.html            workbench page shell (served at /workbench/ in the built site)
-docs/                 the product site (VitePress on the smaltworks docs theme): home page and guide
+docs/                 the product site (VitePress on the smaltworks docs theme): quick start, guide, reference, playground
+app/cypher-values.ts  Cypher values as text (shared with the site's playgrounds)
 site/                 the live console page (console.html, demo.ts), a page of its own
 app/main.ts           application: tabs, explorer, query runner, table viewer, import, history
 app/editor.ts         code editor (highlight overlay, completion, shortcuts): SQL, TypeScript for smaltdf tabs, and Cypher
@@ -281,6 +301,7 @@ envs/                 environments served with the page
 brand/                smalt-brand assets, pinned copy (npm run brand:sync; don't edit)
 scripts/              compile (TypeScript → .js), fetch-packed (pinned packages), vendor (→ vendor/), brand sync, build, serve
 test/e2e.mjs          end-to-end test in headless Chromium (npm test)
+test/docs-examples.mjs  every example in docs/ run and checked against the result printed under it (npm test)
 test/smoke.mjs        post-deploy check of a live site
 ```
 

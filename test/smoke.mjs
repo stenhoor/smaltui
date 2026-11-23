@@ -47,6 +47,20 @@ async function check(browser) {
     if (home.logos !== 1) throw new Error(`home page: ${home.logos} header logos visible`);
     if (home.broken.length) throw new Error(`home page: images not loaded: ${home.broken.join(', ')}`);
 
+    // Docs for agents (BRAND.md, Documentation, rule 9): the index, the agent guide and a page's Markdown twin.
+    for (const [path, want] of [['llms.txt', /^# smaltui/], ['agents.md', /^# smaltui: the guide for agents/], ['guide/queries.md', /# Query tabs/]]) {
+      const res = await page.request.get(base + path);
+      const text = res.ok() ? await res.text() : '';
+      if (!want.test(text)) throw new Error(`${path}: ${res.status()} ${text.slice(0, 60)}`);
+    }
+
+    // A playground runs where it stands: the quick start's SQL, on the site's own engine.
+    await page.goto(base + 'guide/quick-start.html', { waitUntil: 'load' });
+    await page.locator('.sw-play button', { hasText: 'Run' }).first().click();
+    await page.waitForFunction(() => /plum/.test(document.querySelector('.sw-play')?.textContent ?? '') || document.querySelector('.sw-play-error'), null, { timeout: 45000 });
+    const played = await page.evaluate(() => document.querySelector('.sw-play-error')?.textContent ?? '');
+    if (played) throw new Error(`quick start playground: ${played}`);
+
     // The live console (embedded in the home page) loads the demo and runs its first example.
     await page.goto(base + 'console.html', { waitUntil: 'load' });
     await page.waitForFunction(() => /rows? in|could not/i.test(document.querySelector('#consoleStatus')?.textContent ?? ''), null, { timeout: 45000 });
@@ -63,7 +77,7 @@ async function check(browser) {
     const engine = await page.locator('#stEngine').textContent();
     if (/vendor copy missing/.test(engine)) throw new Error(`workbench engine: ${engine} (the built site is not what is being served)`);
     if (pageErrors.length) throw new Error(`page errors: ${pageErrors.join(' | ')}`);
-    return `home: ok; console: "${landing}"; workbench: demo loaded; engine: ${engine.trim()}`;
+    return `home: ok; agent docs: ok; playground: ok; console: "${landing}"; workbench: demo loaded; engine: ${engine.trim()}`;
   } finally {
     await ctx.close();
   }

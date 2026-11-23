@@ -1,3 +1,8 @@
 /* smaltui on the family docs theme (brand/themes/vitepress/smaltdb.css, copied from stenhoor/smalt-brand). */
 
 /* The suffix colour, the badges and the stage badge come from the shared theme (smaltdb.css, stage.ts). */
+
+/* A Cypher playground's graph, drawn under its table (runners.ts). */
+.ui-play-graph { position: relative; height: 320px; border-top: 1px solid var(--vp-c-divider); background: var(--vp-c-bg-alt); }
+.ui-play-graph canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.ui-play-graph .sw-play-note { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 0 16px; text-align: center; }

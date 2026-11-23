@@ -1,3 +1,7 @@
+---
+description: 'Environments: a JSON manifest that builds a database, its saved queries and its graph when the page opens.'
+---
+
 # Environments
 
 An environment is a JSON manifest that builds a database when the page opens:
@@ -40,12 +44,13 @@ https://your.host/smaltui/workbench/?env=envs/demo/env.json
 - `graph` fills the workbench's graph for [Cypher tabs](./cypher): a sample dataset of smaltcy's by name
   (`"dataset"`, with `"size"` for the generated ones), or a graph in smaltcy's JSON (`"url"`, relative to the
   manifest). A query with `"lang": "cypher"` opens as a Cypher tab, `"ts"` as a TypeScript tab.
+- Every field and step kind is in the [environment reference](../reference/environment).
 - `envs/index.json` lists the environments shown in the Import tab.
 - **⋯ → Export database as environment** writes a manifest of the open database: its schema, the rows of local
   tables, external tables and connections by reference (never credentials), and your query, TypeScript and Cypher
-  tabs. The graph isn't in it: **⋯ → Export graph as JSON** saves it, and `"graph": { "url": … }` loads it again. **⋯ → Export as SQL
-  dump** writes plain SQL.
+  tabs. The graph isn't in it: **⋯ → Export graph as JSON** saves it, and `"graph": { "url": … }` loads it again. **⋯ → Export database as SQL dump**
+  writes plain SQL.
 
 `envs/demo/` is a small tea-and-coffee shop with sample data. It has tables, indexes, a view, a materialized view,
 a linked CSV, sales data imported from a Parquet file, saved queries, and smaltcy's social sample as its graph. The welcome tab opens it:
-[try it](/workbench/?env=envs/demo/env.json){target="_self"}.
+**Demo**, in the top nav, opens it.
