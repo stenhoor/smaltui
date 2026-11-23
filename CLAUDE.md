@@ -37,7 +37,8 @@ node scripts/fetch-packed.mjs --local smaltdb=../smaltdb && npm run vendor   # t
 npm run brand:sync -- --ref <commit>   # update brand/ from stenhoor/smalt-brand (CI: node scripts/sync-brand.mjs --check)
 ```
 
-Playwright is not a project dependency. CI installs it before `npm test`:
+Playwright is not a project dependency. CI installs it before `npm run deps`, since `npm install --no-save` resets
+`node_modules` to the lockfile and removes the pinned packages (run `npm run deps` again after it locally too):
 
 ```bash
 scripts/install-chromium.sh   # npm install --no-save playwright, then Chromium with its system packages (without them if the archive is unreachable)
